@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report security issues privately to **lukmorawski@icloud.com**, or via
+Please report security issues privately to **lmorawski@driftband.app**, or via
 GitHub's private vulnerability reporting ("Report a vulnerability" on the
 repository's Security tab). Please do not open a public issue for security
 problems.
