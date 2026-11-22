@@ -453,6 +453,9 @@ table.tbl td.mono, table.tbl td .mono { font-family: var(--mono); font-size: 12p
 table.tbl.tfa-keys { margin: 0 0 10px; }
 table.tbl.tfa-keys td { padding: 8px 12px; font-size: 12.5px; }
 .auth-key { width: 100%; margin-top: 10px; }
+.captcha { margin: 4px 0 14px; min-height: 65px; color: var(--text-mute); font-size: 12px; }
+.field.check-row { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.field.check-row .lbl { margin: 0; }
 @media (max-width: 640px) { .tfa-method { flex-direction: column; } }
 
 /* ----- how-to lists (FAQ) ----- */

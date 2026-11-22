@@ -5,6 +5,10 @@
 const { defineConfig, devices } = require("@playwright/test");
 
 const out = process.env.PLAYWRIGHT_OUT || "out";
+const chromium = {
+  ...devices["Desktop Chrome"],
+  launchOptions: { args: process.env.WEBAUTHN_URL ? [`--host-resolver-rules=MAP ${new URL(process.env.WEBAUTHN_URL).hostname} ${new URL(process.env.BASE_URL).hostname}`] : [] },
+};
 
 module.exports = defineConfig({
   testDir: "./specs",
@@ -28,11 +32,12 @@ module.exports = defineConfig({
   // Browsers offer WebAuthn only in a secure context, and a *.localhost name
   // is one. The throwaway stack is told that WEBAUTHN_URL is its address;
   // here that name is pointed at the application's container.
-  projects: [{
-    name: "chromium",
-    use: {
-      ...devices["Desktop Chrome"],
-      launchOptions: { args: process.env.WEBAUTHN_URL ? [`--host-resolver-rules=MAP ${new URL(process.env.WEBAUTHN_URL).hostname} ${new URL(process.env.BASE_URL).hostname}`] : [] },
-    },
-  }],
+  //
+  // specs/instance.spec.js changes settings of the whole instance (it
+  // closes it to new organizations for a moment), so it runs in a project
+  // of its own after everything else has finished.
+  projects: [
+    { name: "chromium", testIgnore: /instance\.spec\.js$/, use: chromium },
+    { name: "instance", testMatch: /instance\.spec\.js$/, dependencies: ["chromium"], use: chromium },
+  ],
 });

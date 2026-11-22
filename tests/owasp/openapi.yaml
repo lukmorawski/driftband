@@ -24,18 +24,22 @@ components:
         code: { type: string, example: "123456" }
         webauthn_token: { type: string, example: "" }
         credential: { type: object, nullable: true, example: null }
+        turnstile_token: { type: string, example: "" }
+        captcha_pass: { type: string, example: "" }
     RegisterOrg:
       type: object
       properties:
         org_name: { type: string, example: Acme }
         email: { type: string, format: email, example: owner@example.com }
         password: { type: string, example: Register-pass-123 }
+        turnstile_token: { type: string, example: "" }
     AcceptInvite:
       type: object
       properties:
         token: { type: string, example: abc }
         email: { type: string, format: email, example: joiner@example.com }
         password: { type: string, example: Joiner-pass-1234 }
+        turnstile_token: { type: string, example: "" }
     Node:
       type: object
       properties:
@@ -133,6 +137,12 @@ paths:
     get:
       parameters:
         - { name: token, in: query, required: true, schema: { type: string, example: abc } }
+      responses: { "200": { $ref: "#/components/responses/ok" } }
+  /api/auth/config:
+    get:
+      responses: { "200": { $ref: "#/components/responses/ok" } }
+  /api/health:
+    get:
       responses: { "200": { $ref: "#/components/responses/ok" } }
   # POST /api/auth/logout is deliberately absent: importing the document
   # calls every operation once, and that call would end the scanner's own
@@ -453,6 +463,18 @@ paths:
       responses: { "200": { $ref: "#/components/responses/ok" } }
   /api/admin/stats:
     get:
+      responses: { "200": { $ref: "#/components/responses/ok" } }
+  /api/admin/settings:
+    get:
+      responses: { "200": { $ref: "#/components/responses/ok" } }
+    patch:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                registration_open: { type: boolean, example: true }
       responses: { "200": { $ref: "#/components/responses/ok" } }
   /api/admin/audit:
     get:

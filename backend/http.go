@@ -33,6 +33,8 @@ type App struct {
 	retryDelay          time.Duration // base delay between delivery retries
 
 	testMode bool // TEST_INSTANCE: public test-instance limits (see limits.go)
+
+	captcha *turnstile // Cloudflare Turnstile on the public forms; nil = off
 }
 
 func newApp(db *pgxpool.Pool, pm *proberMgr) *App {
@@ -42,7 +44,8 @@ func newApp(db *pgxpool.Pool, pm *proberMgr) *App {
 	}
 	return &App{db: db, pm: pm, limiter: newRateLimiter(), trusted: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
 		sealer: s, appURL: strings.TrimRight(os.Getenv("APP_URL"), "/"), telegramAPI: "https://api.telegram.org",
-		retryDelay: 5 * time.Second, testMode: parseBoolEnv(os.Getenv("TEST_INSTANCE"))}
+		retryDelay: 5 * time.Second, testMode: parseBoolEnv(os.Getenv("TEST_INSTANCE")),
+		captcha: turnstileFromEnv()}
 }
 
 // parseTrustedProxies reads a comma-separated list of CIDRs or addresses.
@@ -245,18 +248,26 @@ const (
 	cspApp = "default-src 'self'; script-src 'self'; style-src 'self'; " +
 		"img-src 'self' data:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; " +
 		"form-action 'self'; frame-ancestors 'none'"
+	// With Turnstile on, its script and its frame (and nothing else) may
+	// come from Cloudflare.
+	cspAppTurnstile = "default-src 'self'; script-src 'self' " + turnstileOrigin + "; style-src 'self'; " +
+		"img-src 'self' data:; connect-src 'self'; font-src 'self' data:; frame-src " + turnstileOrigin + "; " +
+		"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 	cspSite = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
 		"img-src 'self' data:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; " +
 		"form-action 'self'; frame-ancestors 'none'"
 )
 
 // securityHeaders sets defensive headers on every response.
-func securityHeaders(h http.Handler) http.Handler {
+func (a *App) securityHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
-		if r.URL.Path == "/main" || strings.HasPrefix(r.URL.Path, "/main/") {
+		switch {
+		case r.URL.Path == "/main" || strings.HasPrefix(r.URL.Path, "/main/"):
 			hd.Set("Content-Security-Policy", cspSite)
-		} else {
+		case a.captcha != nil:
+			hd.Set("Content-Security-Policy", cspAppTurnstile)
+		default:
 			hd.Set("Content-Security-Policy", cspApp)
 		}
 		hd.Set("X-Content-Type-Options", "nosniff")

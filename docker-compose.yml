@@ -33,6 +33,9 @@ services:
       SECRET_KEY: ${SECRET_KEY:-}
       APP_URL: ${APP_URL:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      TURNSTILE_ENABLE: ${TURNSTILE_ENABLE:-no}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
     ports:
       - "8080:8080"          # change the host port if 8080 is taken
     # Hardening: non-root image user, no capabilities, read-only filesystem.

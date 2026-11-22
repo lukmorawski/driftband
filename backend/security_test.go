@@ -58,6 +58,10 @@ var securityMatrix = map[string]routeSpec{
 		call: func(e *env, o *org, a *actor) (string, any) {
 			return "/api/auth/invite-info?token=" + o.InviteToken, nil
 		}},
+	"GET /api/auth/config": {minRole: "public",
+		call: func(e *env, o *org, a *actor) (string, any) { return "/api/auth/config", nil }},
+	"GET /api/health": {minRole: "public",
+		call: func(e *env, o *org, a *actor) (string, any) { return "/api/health", nil }},
 	"POST /api/auth/logout": {minRole: "member", audit: "auth.logout",
 		call: func(e *env, o *org, a *actor) (string, any) { return "/api/auth/logout", nil }},
 	"GET /api/me": {minRole: "member",
@@ -256,6 +260,15 @@ var securityMatrix = map[string]routeSpec{
 		}},
 	"GET /api/usage": {minRole: "member",
 		call: func(e *env, o *org, a *actor) (string, any) { return "/api/usage", nil }},
+	"GET /api/admin/settings": {minRole: "superadmin",
+		call: func(e *env, o *org, a *actor) (string, any) { return "/api/admin/settings", nil }},
+	// The generic tests keep the instance open (its default): closing it
+	// would refuse the organizations other tests create. TestRegistrationCanBeClosed
+	// covers the closed state.
+	"PATCH /api/admin/settings": {minRole: "superadmin", audit: "admin.settings_change",
+		call: func(e *env, o *org, a *actor) (string, any) {
+			return "/api/admin/settings", map[string]any{"registration_open": true}
+		}},
 	"GET /api/admin/stats": {minRole: "superadmin",
 		call: func(e *env, o *org, a *actor) (string, any) {
 			return "/api/admin/stats", nil
@@ -515,8 +528,8 @@ func TestEveryChangeIsAudited(t *testing.T) {
 			if p == "POST /api/auth/register-org" {
 				_ = testDB.QueryRow(context.Background(), `SELECT org_id FROM users WHERE email = $1`, body.(map[string]any)["email"]).Scan(orgID)
 			}
-			if p == "POST /api/admin/orgs/{id}/delete" {
-				orgID = nil
+			if p == "POST /api/admin/orgs/{id}/delete" || p == "PATCH /api/admin/settings" {
+				orgID = nil // instance-wide: the system log
 			}
 			var n int
 			_ = testDB.QueryRow(context.Background(), `

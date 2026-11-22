@@ -156,7 +156,7 @@ test.describe("browser security @security", () => {
 
   test("security headers on pages, assets and the API", async ({ page }) => {
     await signedIn(page, "headers");
-    for (const path of ["/", "/main.js", "/style.css", "/api/me", "/api/tree", "/robots.txt"]) {
+    for (const path of ["/", "/main.js", "/style.css", "/api/me", "/api/tree", "/api/health", "/robots.txt"]) {
       const r = await page.request.get(path);
       const h = r.headers();
       expect(h["x-content-type-options"], path).toBe("nosniff");

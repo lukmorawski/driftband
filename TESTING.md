@@ -89,6 +89,9 @@ scripts/security-tests.sh -run TestSeries                      # one backend tes
 ```
 
 Browser tests live in `tests/e2e/specs`, helpers in `tests/e2e/helpers.js`.
+`specs/instance.spec.js` changes settings of the whole instance (it closes
+it to new organizations for a moment), so it runs in a project of its own
+after all other specs have finished.
 The Playwright version is pinned in `tests/e2e/package.json`; the matching
 browser image is picked from it. To upgrade, change the version there and
 run the frontend layer once (the lock file is updated in place).
@@ -97,11 +100,11 @@ run the frontend layer once (the lock file is updated in place).
 
 | Risk | Where it is tested |
 |---|---|
-| A01 Broken access control | `TestRoleEnforcement`, `TestTenantIsolation`, `TestAuditLogIsReadOnlyAndScoped`, `TestSuperadminFlagNotSelfAssignable`, `TestTeamSignInDetails` and the admin tests (backend); "tenants and roles are enforced", "a member only reads" and the admin flows (browser); ZAP, signed in |
+| A01 Broken access control | `TestRoleEnforcement`, `TestTenantIsolation`, `TestAuditLogIsReadOnlyAndScoped`, `TestSuperadminFlagNotSelfAssignable`, `TestTeamSignInDetails`, `TestRegistrationCanBeClosed` and the admin tests (backend); "tenants and roles are enforced", "a member only reads" and the admin flows (browser); ZAP, signed in |
 | A02 Cryptographic failures | `TestPasswordsStoredAsArgon2id`, `TestChannelSecretsNeverExposed`, `TestChannelsSealedWithSalt`, `TestTotpSecretSealed`, `TestSealedRecords` (AES-256-GCM at rest, per-record salt), `TestSessionCookieFlags`, `TestSessionTokens`; "the session cookie is HttpOnly, SameSite" and "a channel keeps its secret" (browser) |
 | A03 Injection | `TestInjectionAndMalformedInput`, `TestHostAddressValidation` (fping arguments), `TestImportRejectsNonConfigFiles`, `TestMassAssignmentRejected`; "stored script payloads render as text", "every view loads without CSP violations" (browser); ZAP passive and active rules (XSS, SQL, command, path) |
-| A04 Insecure design | `TestAvatarUpload`, `TestAvatarParsersOnGarbage` (file type, size and pixel limits, decompression bombs), `TestLoginRateLimited`, `TestPasswordConfirmationRateLimited`, `TestLoginDoesNotRevealAccounts`, limits and profile rules, alert evaluator tests (no false positives, flap suppression); "ten wrong passwords lock the account" (browser) |
-| A05 Security misconfiguration | `TestSecurityHeaders`, `TestStaticFilesConfined`, `TestClientIPNotSpoofable`; "security headers", "the application cannot be framed", "cross-site requests cannot act on the session" (browser); Trivy misconfiguration rules for the Dockerfile and compose; the hardened container runs the browser tests; ZAP header rules |
+| A04 Insecure design | `TestAvatarUpload`, `TestAvatarParsersOnGarbage` (file type, size and pixel limits, decompression bombs), `TestLoginRateLimited`, `TestPasswordConfirmationRateLimited`, `TestLoginDoesNotRevealAccounts`, `TestTurnstile` (no password is checked before the challenge is passed), limits and profile rules, alert evaluator tests (no false positives, flap suppression); "ten wrong passwords lock the account" (browser) |
+| A05 Security misconfiguration | `TestSecurityHeaders`, `TestStaticFilesConfined`, `TestClientIPNotSpoofable`, `TestHealth`; "security headers", "the application cannot be framed", "cross-site requests cannot act on the session" (browser); Trivy misconfiguration rules for the Dockerfile and compose; the hardened container runs the browser tests; ZAP header rules |
 | A06 Vulnerable and outdated components | govulncheck (Go modules in the binary's call graph), Trivy (image packages and modules), the pinned base images |
 | A07 Identification and authentication failures | `TestTwoFactor`, `TestSecurityKeyAsSecondFactor`, `TestPasskeyEnrollmentRules`, `TestSessionTokens`, `TestPasswordChange`, `TestEmailChange`, `TestInvites`, `TestUserRemovalRules`, `TestAdminBlockUser`; the authentication and team flows, "security key" and "passkey" with virtual authenticators (browser) |
 | A08 Software and data integrity failures | gitleaks and Trivy secret scanning; no third-party scripts in the application (browser); import validation; the release workflow attaches an SBOM and provenance |

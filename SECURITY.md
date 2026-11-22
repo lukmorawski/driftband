@@ -13,7 +13,10 @@ acknowledgement within a few days.
 ## Scope notes
 
 - Driftband sends ICMP echo requests to the hosts you configure. Only point it
-  at hosts you are authorized to probe.
+  at hosts you are authorized to probe. The author accepts no responsibility
+  for misuse or hostile use of the software, in particular for probing
+  networks the operator does not own or administer (see "Responsible use" in
+  the README).
 - Driftband has built-in accounts, roles, 2FA and an audit log. Serve it over
   HTTPS behind a reverse proxy and set `TRUSTED_PROXIES` to match it (see
   [SECURITY-TESTING.md](SECURITY-TESTING.md)).

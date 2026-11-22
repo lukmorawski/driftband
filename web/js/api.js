@@ -38,6 +38,9 @@ export const api = {
   login:         (b)       => req("POST", "/api/auth/login", b),
   logout:        ()        => req("POST", "/api/auth/logout"),
   inviteInfo:    (token)   => req("GET", "/api/auth/invite-info?token=" + encodeURIComponent(token)),
+  // what the sign-in page needs before anyone is signed in:
+  // { registration_open, turnstile_site_key }
+  authConfig:    ()        => req("GET", "/api/auth/config"),
   acceptInvite:  (b)       => req("POST", "/api/auth/accept-invite", b),
 
   changePassword:(b)       => req("POST", "/api/account/password", b),
@@ -107,5 +110,7 @@ export const api = {
   adminResetPassword:(id, reset_2fa) => req("POST", `/api/admin/users/${id}/reset-password`, { reset_2fa }),
   adminDeleteUser:   (id)          => req("DELETE", `/api/admin/users/${id}`),
   adminStats:        ()            => req("GET", "/api/admin/stats"),
+  adminSettings:     ()            => req("GET", "/api/admin/settings"),
+  adminSetSettings:  (b)           => req("PATCH", "/api/admin/settings", b),
   adminAudit:        (params)      => req("GET", "/api/admin/audit" + query(params)),
 };

@@ -14,6 +14,7 @@ binary.
   |                                           |
   |  HTTP server --- JSON API (/api/...)      |
   |       |      \-- web interface (static)   |
+  |       |      \-- health (/api/health)     |
   |       |                                   |
   |  prober manager --> fping (one process    |      ICMP echo
   |       |             per host and cycle) --------------------> your hosts
@@ -99,12 +100,19 @@ Every delivery is recorded in the delivery log.
 - **Organizations** are isolated tenants. Every table that holds tenant
   data carries the organization id and every query filters on it; another
   organization addressing your objects gets "not found".
+- **Accounts** come into being in two ways only: creating an organization
+  on the sign-in page (the creator becomes its owner) or accepting a
+  single-use invitation from an owner or admin. A platform administrator
+  can turn the first way off for the whole instance (`instance.go`, kept
+  in `app_settings`); the sign-in page then offers signing in and nothing
+  else.
 - **Roles**: owner, admin, member. Members work with hosts and probe
   profiles and read everything else; owners and admins also manage the
   team and invitations, imports, retention, alert rules and notification
   channels. A **platform
   administrator** (a flag set only in the database, never through the API)
-  sees all organizations, can block or delete them and set host limits.
+  sees all organizations, can block or delete them, set host limits and
+  change the instance settings.
 - **Passwords** are hashed with Argon2id (64 MB, unique salt). Sessions
   are random 256-bit tokens in an HttpOnly, SameSite cookie, valid for 30
   days and revocable on the server.
@@ -114,6 +122,13 @@ Every delivery is recorded in the delivery log.
 - **Rate limiting** (`ratelimit.go`): failed passwords and codes are
   counted per account and per client address in a 15-minute window, in
   memory.
+- **Turnstile** (`turnstile.go`, optional): with `TURNSTILE_ENABLE` the
+  sign-in, organization and invitation requests must carry the answer of
+  a Cloudflare Turnstile widget. The server verifies it with Cloudflare
+  before it reads anything else of the request, so no password is checked
+  for a client that did not pass. A two-factor sign-in is checked once:
+  the answer to a correct password carries a short-lived pass, bound to
+  the account, for the request that brings the second factor.
 - **Audit log** (`audit.go`): every state change, failed sign-in and
   refused permission check is written with the user and client address.
   Organizations read their own log; events without an organization are
@@ -136,7 +151,18 @@ longer be opened cannot sign in with the password alone.
 (`apiRoutes()`); the test suite refuses a route that has no entry in the
 security matrix. All responses carry a Content Security Policy without
 inline scripts or styles, `nosniff`, frame denial and the cross-origin
-isolation headers; API responses are never cached. The client address is
+isolation headers; API responses are never cached. The policy allows the
+application's own origin only; with Turnstile on it additionally allows
+Cloudflare's challenge origin for scripts and frames.
+
+The server speaks plain HTTP and has no TLS: it is meant to run behind a
+reverse proxy that terminates HTTPS (see the
+[configuration guide](CONFIGURATION.md#reverse-proxy-and-https)).
+
+`GET /api/health` (`instance.go`) is the endpoint for load balancers and
+monitoring: 200 when the database answers, 503 when it does not, no
+session needed and nothing else disclosed. The image's health check uses
+it. The client address is
 taken from `X-Forwarded-For` only when the request comes from a trusted
 proxy. JSON bodies are limited to 1 MB and unknown fields are rejected.
 

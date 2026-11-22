@@ -136,6 +136,24 @@ Specific checks:
   administrator and client IP.
 - **Paged lists**: page size clamped to 1-200, offsets bounded; a page
   never shows another organization's entries.
+- **Instance settings**: only a platform administrator turns creating
+  organizations off or on, and the change is in the system log. While it
+  is off the server refuses to create organizations (nothing is left
+  behind, the attempt is audited) and the sign-in page is told to hide the
+  form; existing accounts sign in and invitations still work.
+- **Turnstile** (with `TURNSTILE_ENABLE`): the sign-in, organization and
+  invitation requests need a verified answer; without one nothing else is
+  checked, the password included, and no failed attempt is counted. A
+  refused answer is audited, an unreachable verification service refuses
+  the request, an answer is accepted once. The pass for the second step
+  of a two-factor sign-in is issued only after the right password, works
+  for that account only and expires. The policy then allows Cloudflare's
+  challenge origin for scripts and frames and nothing more; the secret key
+  is never sent to the browser. The tests use a stand-in for Cloudflare's
+  verification service.
+- **Health endpoint**: answers without a session with nothing but the
+  state of the application and its database, is never cached, and turns
+  503 without leaking the database error.
 - **Platform admin**: the superadmin flag cannot be set through any API;
   blocking a user or organization ends sessions, refuses sign-in (without
   revealing it to password guessers) and stops probing; temporary passwords

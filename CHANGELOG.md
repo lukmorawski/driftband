@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-22
+
+### Added
+- Cloudflare Turnstile on the sign-in, organization and invitation forms,
+  off by default (`TURNSTILE_ENABLE`, `TURNSTILE_SITE_KEY`,
+  `TURNSTILE_SECRET_KEY`). The server verifies the answer before it checks
+  anything else; a two-factor sign-in is challenged once.
+- Admin, Settings: a platform administrator can turn off creating
+  organizations. The sign-in page then offers only signing in, and new
+  people join through invitations.
+- `GET /api/health` for load balancers and monitoring: 200 when the
+  application and its database are available, 503 otherwise.
+
+### Changed
+- The container health check uses `/api/health` instead of `/robots.txt`,
+  so a container whose database is gone is reported as unhealthy.
+- Documentation: reverse proxy examples for nginx, Apache, HAProxy and
+  Traefik (the application has no TLS of its own, by design), accounts and
+  invitations, Turnstile, monitoring, and a notice on responsible use.
+
 ## [0.1.0] - 2026-11-22
 
 First public release.
@@ -63,5 +83,6 @@ First public release.
 - Test suite on four layers: backend with the security matrix over every
   API route, supply chain scanning, browser tests and OWASP ZAP.
 
-[Unreleased]: https://github.com/lukmorawski/driftband/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lukmorawski/driftband/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/lukmorawski/driftband/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/lukmorawski/driftband/releases/tag/v0.1.0

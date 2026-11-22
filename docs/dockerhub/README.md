@@ -45,7 +45,7 @@ services:
       retries: 10
 
   driftband:
-    image: lukmorawski/driftband:0.1.0
+    image: lukmorawski/driftband:0.1.1
     restart: unless-stopped
     depends_on:
       db:
@@ -53,6 +53,11 @@ services:
     environment:
       DATABASE_URL: postgres://driftband:${DB_PASSWORD:?set DB_PASSWORD in .env}@db:5432/driftband?sslmode=disable
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      APP_URL: ${APP_URL:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      TURNSTILE_ENABLE: ${TURNSTILE_ENABLE:-no}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
     ports:
       - "8080:8080"
     read_only: true
@@ -87,13 +92,20 @@ Releases follow [Semantic Versioning](https://semver.org). Platforms: `linux/amd
 | `SECRET_KEY` | generated, stored in the database | 32-byte key (hex or base64) that encrypts notification channels and two-factor secrets; set it (as above) to keep the key out of the database, and keep it: without it channels and enrolled second factors cannot be read |
 | `APP_URL` | (none) | Public URL of the instance: linked from notifications, and the address security keys and passkeys are bound to |
 | `TRUSTED_PROXIES` | loopback and private ranges | Reverse proxies (CIDRs or addresses) whose `X-Forwarded-For` / `-Proto` headers are trusted; behind a CDN, add its ranges too |
+| `TURNSTILE_ENABLE`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | off | `yes` with both keys puts a Cloudflare Turnstile check on the sign-in, organization and invitation forms |
 | `TEST_INSTANCE` | `no` | `yes` turns on limits meant for a public demo instance |
 
 Every setting, the reverse proxy, backups and upgrades are described in the
 [configuration guide](https://github.com/lukmorawski/driftband/blob/main/docs/CONFIGURATION.md).
 
-Put Driftband behind a reverse proxy with HTTPS: session cookies are marked
-`Secure` automatically.
+Put Driftband behind a reverse proxy that terminates HTTPS (nginx, Apache,
+HAProxy, Traefik: the guide has an example for each). The application has
+no TLS of its own, by design, and should not be used over plain HTTP, not
+even inside a private network.
+
+New people join an organization only through an invitation link. A
+platform administrator can also turn off creating organizations, which
+leaves a sign-in form and nothing else for visitors.
 
 ## Security
 
@@ -102,7 +114,7 @@ Put Driftband behind a reverse proxy with HTTPS: session cookies are marked
   default for containers, set explicitly above).
 - Works with a read-only root filesystem and `no-new-privileges`.
 - Every image ships with an SBOM and build provenance attestations
-  (`docker buildx imagetools inspect lukmorawski/driftband:0.1.0 --format '{{ json .SBOM }}'`).
+  (`docker buildx imagetools inspect lukmorawski/driftband:0.1.1 --format '{{ json .SBOM }}'`).
 - Argon2id passwords, two-factor authentication (security keys, passkeys,
   TOTP), rate-limited sign-in, encrypted notification channels,
   SSRF-checked webhooks, an audit log of every action, and an automated
@@ -110,5 +122,14 @@ Put Driftband behind a reverse proxy with HTTPS: session cookies are marked
 
 ## Health check
 
-The image has a built-in `HEALTHCHECK` (`GET /robots.txt`). `docker run --rm
-lukmorawski/driftband:0.1.0 --version` prints the version.
+`GET /api/health` answers `200` with `{"status":"ok","database":"ok"}` when
+the application is serving and its database answers, and `503` otherwise.
+It needs no session; point your load balancer and monitoring at it. The
+image's built-in `HEALTHCHECK` uses the same endpoint. `docker run --rm
+lukmorawski/driftband:0.1.1 --version` prints the version.
+
+## Responsible use
+
+Probe only hosts and networks that you own or have permission to measure.
+The software comes without warranty; the author accepts no responsibility
+for misuse or hostile use of it.

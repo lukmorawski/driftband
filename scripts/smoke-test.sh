@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
 # Starts an image the way docker-compose.yml runs it (read-only, no
 # capabilities, non-root) next to a throwaway PostgreSQL and checks that it
-# comes up healthy, serves the web interface and answers the API. Used by
+# comes up healthy (GET /api/health), serves the web interface and answers
+# the API. Used by
 # the Release workflow before an image is published. Needs only Docker.
 #
 #   scripts/smoke-test.sh IMAGE [EXPECTED_VERSION]
@@ -40,6 +41,7 @@ until [ "$(docker inspect -f '{{.State.Health.Status}}' "$id-app" 2>/dev/null)" 
 done
 
 get() { docker exec "$id-app" wget -q -O - "http://127.0.0.1:8080$1" 2>&1; }
+get /api/health | grep -q '"status":"ok"' || fail "GET /api/health does not report ok"
 get / | grep -q '<title>Driftband</title>' || fail "the web interface is not served"
 get /favicon.svg | grep -q '<svg' || fail "static assets are not served"
 # without a session the API must refuse, not fall through to the page

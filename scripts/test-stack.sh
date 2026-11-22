@@ -63,7 +63,7 @@ up() {
     -e LISTEN=:8080 -e SECRET_KEY="$(random 32)" -e APP_URL=http://driftband.localhost:8080 -e TEST_INSTANCE=no \
     "$IMAGE" >/dev/null
   i=0
-  until docker exec "$APP" wget -q -O /dev/null http://127.0.0.1:8080/robots.txt 2>/dev/null; do
+  until docker exec "$APP" wget -q -O /dev/null http://127.0.0.1:8080/api/health 2>/dev/null; do
     i=$((i + 1))
     [ "$i" -lt 60 ] || { echo "the application did not start" >&2; docker logs "$APP" >&2; exit 1; }
     sleep 1

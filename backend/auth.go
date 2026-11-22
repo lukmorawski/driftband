@@ -101,9 +101,10 @@ func (a *App) createSession(ctx context.Context, w http.ResponseWriter, r *http.
 
 func (a *App) handleRegisterOrg(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		OrgName  string `json:"org_name"`
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		OrgName        string `json:"org_name"`
+		Email          string `json:"email"`
+		Password       string `json:"password"`
+		TurnstileToken string `json:"turnstile_token"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
@@ -111,6 +112,16 @@ func (a *App) handleRegisterOrg(w http.ResponseWriter, r *http.Request) {
 	}
 	in.OrgName = strings.TrimSpace(in.OrgName)
 	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+	// A platform administrator can close the instance to new organizations;
+	// people then join only through invitations.
+	if !a.registrationOpen(r.Context()) {
+		a.auditSystem(r.Context(), in.Email, clientIP(r), "denied.org.create", "creating organizations is turned off")
+		writeErr(w, http.StatusForbidden, "creating organizations is turned off on this instance")
+		return
+	}
+	if !a.checkCaptcha(w, r, in.TurnstileToken, "", in.Email) {
+		return
+	}
 	if in.OrgName == "" || !validEmail(in.Email) || !validPassword(in.Password) {
 		writeErr(w, http.StatusBadRequest, "organization name, valid email and 8+ char password required")
 		return
@@ -182,6 +193,10 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// the password was accepted (see webauthn.go).
 		WebauthnToken string          `json:"webauthn_token"`
 		Credential    json.RawMessage `json:"credential"`
+		// Turnstile (when enabled): the widget's token, or on the request
+		// that brings the second factor the pass issued with the first answer.
+		TurnstileToken string `json:"turnstile_token"`
+		CaptchaPass    string `json:"captcha_pass"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
@@ -199,6 +214,10 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 			a.auditAnon(ctx, orgID, in.Email, ip, "auth.login_blocked", "too many failed attempts")
 		}
 		writeErr(w, http.StatusTooManyRequests, "too many failed attempts, try again later")
+		return
+	}
+	// No password is checked for a request that did not pass the challenge.
+	if !a.checkCaptcha(w, r, in.TurnstileToken, in.CaptchaPass, in.Email) {
 		return
 	}
 
@@ -266,6 +285,15 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 				out["error"] = "your security keys cannot be used on this server; ask an administrator to reset your two-factor authentication"
 			}
 			out["methods"] = methods
+			if a.captcha != nil {
+				// The password was right: the request with the second factor
+				// presents this instead of solving the challenge again.
+				if a.captcha.passValid(in.CaptchaPass, in.Email) {
+					out["captcha_pass"] = in.CaptchaPass
+				} else {
+					out["captcha_pass"] = a.captcha.issue(in.Email)
+				}
+			}
 			writeJSON(w, http.StatusUnauthorized, out)
 		}
 		code := strings.TrimSpace(in.Code)
@@ -349,15 +377,19 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Token    string `json:"token"`
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Token          string `json:"token"`
+		Email          string `json:"email"`
+		Password       string `json:"password"`
+		TurnstileToken string `json:"turnstile_token"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+	if !a.checkCaptcha(w, r, in.TurnstileToken, "", in.Email) {
+		return
+	}
 	if !validEmail(in.Email) || !validPassword(in.Password) {
 		writeErr(w, http.StatusBadRequest, "valid email and 8+ char password required")
 		return

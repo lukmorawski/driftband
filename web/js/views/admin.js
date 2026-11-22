@@ -1,5 +1,5 @@
 // Platform administration (superadmins only): organizations and their users,
-// database usage with a forecast, and the global audit log.
+// database usage with a forecast, the global audit log and instance settings.
 import { api } from "../api.js";
 import { h, clear, toast, modal, confirmDialog, fmtDateTime, fmtRelative, pager } from "../ui.js";
 
@@ -7,6 +7,7 @@ const TABS = [
   { id: "orgs", label: "Organizations" },
   { id: "usage", label: "Usage & forecast" },
   { id: "audit", label: "Global audit log" },
+  { id: "settings", label: "Settings" },
 ];
 
 export function renderAdmin(mount, ctx) {
@@ -22,6 +23,7 @@ export function renderAdmin(mount, ctx) {
     clear(body);
     if (tab === "orgs") orgsTab(body, ctx);
     else if (tab === "usage") usageTab(body);
+    else if (tab === "settings") settingsTab(body);
     else auditTab(body);
   }
   draw();
@@ -326,4 +328,44 @@ async function auditTab(body) {
   const reload = () => { clearTimeout(timer); timer = setTimeout(() => { pg.reset(); load(); }, 250); };
   orgSel.addEventListener("change", reload); q.addEventListener("input", reload); act.addEventListener("input", reload);
   await load();
+}
+
+// ---------- Settings ----------
+async function settingsTab(body) {
+  const wrap = h("div.stack", h("div.card", "Loading..."));
+  body.append(wrap);
+  let s;
+  try { s = await api.adminSettings(); } catch (e) { toast(e.message, "err"); return; }
+
+  const open = h("input", { type: "checkbox", id: "reg-open" }); open.checked = !!s.registration_open;
+  const state = h("p.hint");
+  const describe = () => {
+    state.textContent = open.checked
+      ? "Anyone who can reach the sign-in page can create an organization and becomes its owner."
+      : "The sign-in page has no \"Create organization\" form. New people join only through an invitation link from an owner or admin.";
+  };
+  describe();
+  open.addEventListener("change", async () => {
+    open.disabled = true;
+    try {
+      await api.adminSetSettings({ registration_open: open.checked });
+      toast(open.checked ? "Creating organizations is on" : "Creating organizations is off", "ok");
+    } catch (e) { open.checked = !open.checked; toast(e.message, "err"); }
+    open.disabled = false;
+    describe();
+  });
+
+  clear(wrap);
+  wrap.append(
+    h("div.card",
+      h("h2", "Registration"),
+      h("p.sub", "Who can start using this instance."),
+      h("label.field.check-row", open, h("span.lbl", "Allow creating organizations")),
+      state),
+    h("div.card",
+      h("h2", "Sign-in protection"),
+      h("p.sub", "Set in the server's environment (TURNSTILE_ENABLE), shown here for information."),
+      h("p", "Cloudflare Turnstile on the sign-in, organization and invitation forms: ",
+        h("b", s.turnstile_enabled ? "on" : "off"), ".")),
+  );
 }

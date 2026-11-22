@@ -1,6 +1,14 @@
 import { api } from "../api.js";
 import { h, clear, toast, currentTheme, toggleTheme, icons } from "../ui.js";
 import { webauthnSupported, getAssertion, webauthnError } from "../webauthn.js";
+import { captcha, CAPTCHA_WAIT } from "../turnstile.js";
+
+// What the server allows on these pages. If it cannot be asked, assume the
+// defaults; the server enforces its settings either way.
+async function authConfig() {
+  try { return await api.authConfig(); }
+  catch (e) { return { registration_open: true, turnstile_site_key: "" }; }
+}
 
 function field(label, input) {
   return h("label.field", h("span.lbl", label), input);
@@ -15,27 +23,31 @@ function authShell(...kids) {
   );
 }
 
-export function renderAuth(mount, { onAuthed }) {
+export async function renderAuth(mount, { onAuthed }) {
   clear(mount);
   let mode = "login";
   const err = h("p.error-text");
 
   const wrap = authShell();
   const card = wrap.querySelector(".auth-card");
+  mount.append(wrap);
+  const cfg = await authConfig();
+  // With organization creation turned off there is only the sign-in form:
+  // new people join through an invitation link.
   const tabs = h("div.auth-tabs",
     h("button", { onclick: () => set("login") }, "Sign in"),
-    h("button", { onclick: () => set("register") }, "Create organization"),
+    cfg.registration_open ? h("button", { onclick: () => set("register") }, "Create organization") : null,
   );
+  tabs.hidden = !cfg.registration_open;
   const formHost = h("div");
   card.append(tabs, formHost, err);
-  mount.append(wrap);
 
   function set(m) { mode = m; err.textContent = ""; draw(); }
 
   function draw() {
-    tabs.children[0].className = mode === "login" ? "active" : "";
-    tabs.children[1].className = mode === "register" ? "active" : "";
+    [...tabs.children].forEach((b, i) => b.className = (mode === "login") === (i === 0) ? "active" : "");
     clear(formHost);
+    const check = captcha(cfg.turnstile_site_key);
     if (mode === "login") {
       const email = h("input", { type: "email", autocomplete: "email", placeholder: "you@example.com" });
       const pw = h("input", { type: "password", autocomplete: "current-password", placeholder: "Password" });
@@ -43,6 +55,9 @@ export function renderAuth(mount, { onAuthed }) {
       // After the password is accepted the server says which second factors
       // the account has: a code (TOTP), a security key / passkey, or both.
       let challenge = null; // { token, options } for the key, single use
+      // Issued with the request for a second factor: it stands in for the
+      // verification on the request that brings the code or the key.
+      let pass = "";
       const keyBtn = h("button.btn", { type: "button", hidden: true, onclick: () => useKey() }, "Use security key or passkey");
       keyBtn.classList.add("auth-key");
       const needSecond = (e) => {
@@ -50,6 +65,7 @@ export function renderAuth(mount, { onAuthed }) {
         const methods = d.methods || (d.totp_required ? ["totp"] : []);
         const first = codeField.hidden && keyBtn.hidden;
         challenge = d.webauthn || null;
+        pass = d.captcha_pass || "";
         codeField.hidden = !methods.includes("totp");
         keyBtn.hidden = !challenge;
         if (!first) { err.textContent = e.message; }
@@ -63,8 +79,14 @@ export function renderAuth(mount, { onAuthed }) {
         return first;
       };
       const send = async (extra) => {
-        try { await api.login({ email: email.value, password: pw.value, ...extra }); onAuthed(); return null; }
-        catch (e) { return e; }
+        const proof = pass ? { captcha_pass: pass } : check.el ? { turnstile_token: check.token() } : {};
+        if (check.el && !pass && !check.token()) return new Error(CAPTCHA_WAIT);
+        try { await api.login({ email: email.value, password: pw.value, ...extra, ...proof }); onAuthed(); return null; }
+        catch (e) {
+          if (!pass) check.reset(); // the token went with this request
+          if (e.data && e.data.captcha_failed) pass = "";
+          return e;
+        }
       };
       async function useKey() {
         if (!challenge) return;
@@ -97,6 +119,7 @@ export function renderAuth(mount, { onAuthed }) {
         field("Email", email),
         field("Password", onEnter(pw, submit)),
         codeField,
+        check.el,
         h("button.btn.primary", { style: "width:100%", onclick: submit }, "Sign in"),
         keyBtn,
       );
@@ -106,13 +129,16 @@ export function renderAuth(mount, { onAuthed }) {
       const pw = h("input", { type: "password", autocomplete: "new-password", placeholder: "At least 8 characters" });
       const submit = async () => {
         err.textContent = "";
-        try { await api.registerOrg({ org_name: org.value, email: email.value, password: pw.value }); onAuthed(); }
-        catch (e) { err.textContent = e.message; }
+        if (check.el && !check.token()) { err.textContent = CAPTCHA_WAIT; return; }
+        const proof = check.el ? { turnstile_token: check.token() } : {};
+        try { await api.registerOrg({ org_name: org.value, email: email.value, password: pw.value, ...proof }); onAuthed(); }
+        catch (e) { check.reset(); err.textContent = e.message; }
       };
       formHost.append(
         field("Organization name", org),
         field("Your email", email),
         field("Password", onEnter(pw, submit)),
+        check.el,
         h("button.btn.primary", { style: "width:100%", onclick: submit }, "Create organization"),
         h("p.hint", "You become the owner. Invite teammates afterwards from Settings."),
       );
@@ -134,18 +160,22 @@ export async function renderAccept(mount, token, { onAuthed }) {
   catch (e) { clear(card); card.append(h("div.auth-brand", "Driftband"), h("p.sub", { style: "text-align:center" }, e.message), h("a", { href: "#/dashboard", style: "display:block;text-align:center;margin-top:10px" }, "Go to sign in")); return; }
 
   clear(card);
+  const check = captcha((await authConfig()).turnstile_site_key);
   const email = h("input", { type: "email", autocomplete: "email", placeholder: "you@example.com" });
   const pw = h("input", { type: "password", autocomplete: "new-password", placeholder: "At least 8 characters" });
   const submit = async () => {
     err.textContent = "";
-    try { await api.acceptInvite({ token, email: email.value, password: pw.value }); onAuthed(); }
-    catch (e) { err.textContent = e.message; }
+    if (check.el && !check.token()) { err.textContent = CAPTCHA_WAIT; return; }
+    const proof = check.el ? { turnstile_token: check.token() } : {};
+    try { await api.acceptInvite({ token, email: email.value, password: pw.value, ...proof }); onAuthed(); }
+    catch (e) { check.reset(); err.textContent = e.message; }
   };
   card.append(
     h("div.auth-brand", h("span.dot", { style: "width:12px;height:12px;border-radius:50%;background:var(--accent)" }), "Driftband"),
     h("p.sub", { style: "text-align:center" }, `Join ${info.org} as ${info.role}`),
     field("Email", email),
     field("Password", onEnter(pw, submit)),
+    check.el,
     h("button.btn.primary", { style: "width:100%", onclick: submit }, "Join organization"),
     err,
   );

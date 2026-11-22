@@ -46,8 +46,11 @@ docker compose up -d
 ```
 
 Open <http://localhost:8080>. The first person to register creates an
-organization and becomes its owner. For anything beyond a trial, put a
-reverse proxy with HTTPS in front and read the configuration guide.
+organization and becomes its owner; everyone else joins through an
+invitation link. For anything beyond a trial, put a reverse proxy with
+HTTPS in front (the application has no TLS of its own, by design) and read
+the [configuration guide](docs/CONFIGURATION.md): it has examples for
+nginx, Apache, HAProxy and Traefik.
 
 To build from this repository instead of pulling the image:
 
@@ -60,7 +63,7 @@ docker compose up -d --build
 
 | | |
 |---|---|
-| [Configuration](docs/CONFIGURATION.md) | every setting, reverse proxy, platform administrator, backups, upgrades |
+| [Configuration](docs/CONFIGURATION.md) | every setting, reverse proxy examples, registration and invitations, Turnstile, monitoring, backups, upgrades |
 | [Architecture](docs/ARCHITECTURE.md) | the components of the system and how a measurement travels through them |
 | [Docker image](docs/dockerhub/README.md) | compose file, tags, container hardening |
 | [Testing](TESTING.md) | the four test layers and how to run them |
@@ -68,6 +71,18 @@ docker compose up -d --build
 | [Security policy](SECURITY.md) | reporting a vulnerability |
 | [Contributing](CONTRIBUTING.md) | development setup, sign-off, releases |
 | [Changelog](CHANGELOG.md) | what changed in each release |
+
+## Responsible use
+
+Driftband sends ICMP echo requests to the hosts you configure. Probe only
+hosts and networks that you own or have explicit permission to measure.
+
+The software is provided as it is, without warranty of any kind (see the
+[license](LICENSE)). The author accepts no responsibility for misuse or
+hostile use of it, in particular for probing or mapping networks that the
+person running it does not own or administer. Whoever operates an instance
+is solely responsible for how it is used and for complying with the law
+and with the acceptable-use rules of their network providers.
 
 ## Support
 

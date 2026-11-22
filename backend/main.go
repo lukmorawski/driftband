@@ -66,6 +66,9 @@ func main() {
 	app.pm.testMode = app.testMode
 	app.migrateChannelSecrets(ctx)
 	app.migrateTotpSecrets(ctx)
+	if app.captcha != nil {
+		log.Print("TURNSTILE_ENABLE: sign-in, organization and invitation forms require a Cloudflare Turnstile check")
+	}
 	if app.testMode {
 		log.Printf("TEST_INSTANCE: test-instance limits are on (hosts %d/org by default, interval >= %ds, packet <= %d B)", testHostLimit, testMinInterval, testMaxPacket)
 	}
@@ -111,6 +114,8 @@ func (a *App) apiRoutes() []apiRoute {
 		{"POST /api/auth/login", true, a.handleLogin, false},
 		{"POST /api/auth/accept-invite", true, a.handleAcceptInvite, false},
 		{"GET /api/auth/invite-info", true, a.handleInviteInfo, false},
+		{"GET /api/auth/config", true, a.handleAuthConfig, false},
+		{"GET /api/health", true, a.handleHealth, false},
 		{"POST /api/auth/logout", false, a.handleLogout, false},
 		{"GET /api/me", false, a.handleMe, false},
 		{"POST /api/account/password", false, a.handleChangePassword, false},
@@ -171,6 +176,8 @@ func (a *App) apiRoutes() []apiRoute {
 		{"POST /api/admin/users/{id}/reset-password", false, a.handleAdminResetPassword, true},
 		{"DELETE /api/admin/users/{id}", false, a.handleAdminDeleteUser, true},
 		{"GET /api/admin/stats", false, a.handleAdminStats, true},
+		{"GET /api/admin/settings", false, a.handleAdminGetSettings, true},
+		{"PATCH /api/admin/settings", false, a.handleAdminSetSettings, true},
 		{"GET /api/admin/audit", false, a.handleAdminAudit, true},
 	}
 }
@@ -196,7 +203,7 @@ func (a *App) routes(webDir, landingDir string) http.Handler {
 
 	// --- static SPA ---
 	mux.HandleFunc("/", spaHandler(webDir))
-	return a.withClientIP(securityHeaders(logRequests(mux)))
+	return a.withClientIP(a.securityHeaders(logRequests(mux)))
 }
 
 // landingHandler serves the static website. Directories are served only
@@ -329,7 +336,8 @@ func spaHandler(dir string) http.HandlerFunc {
 
 func logRequests(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" {
+		// health checks arrive every few seconds and are not worth a line each
+		if strings.HasPrefix(r.URL.Path, "/api") && r.URL.Path != "/api/health" {
 			log.Printf("%s %s", r.Method, r.URL.RequestURI())
 		}
 		h.ServeHTTP(w, r)
