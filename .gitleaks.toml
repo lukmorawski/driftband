@@ -1,0 +1,21 @@
+# gitleaks configuration for scripts/test-supply-chain.sh.
+# The default rules apply; the allowlists below name the known false
+# positives. Add an entry only with the reason next to it.
+
+title = "Driftband"
+
+[extend]
+useDefault = true
+
+# Passwords and tokens that the Go test suite uses as fixtures (for example
+# "Changed-pass-123" or the Telegram bot token format). They are not
+# credentials for anything.
+[[allowlists]]
+description = "test fixtures in the backend test suite"
+paths = ['''^backend/.*_test\.go$''']
+
+# The browser tests generate throwaway accounts; the Telegram token there is
+# the documented example format.
+[[allowlists]]
+description = "browser test fixtures"
+paths = ['''^tests/e2e/.*\.js$''']

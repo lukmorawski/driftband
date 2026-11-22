@@ -1,0 +1,10 @@
+# The build needs only the files named below; everything else (including
+# .env and the git history) stays out of the build context.
+*
+!backend
+!web
+!licenses
+!LICENSE
+!NOTICE
+!VERSION
+!scripts/web-version.sh

@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: driftband-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: driftband
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env (see .env.example)}
+      POSTGRES_DB: driftband
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U driftband"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  driftband:
+    # Built from this checkout. To run the published image instead, replace
+    # the two lines below with: image: lukmorawski/driftband:<version>
+    build: .
+    container_name: driftband
+    image: driftband:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://driftband:${DB_PASSWORD:?set DB_PASSWORD in .env (see .env.example)}@db:5432/driftband?sslmode=disable
+      LISTEN: ":8080"
+      # Settings from .env (see .env.example)
+      TEST_INSTANCE: ${TEST_INSTANCE:-no}
+      SECRET_KEY: ${SECRET_KEY:-}
+      APP_URL: ${APP_URL:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+    ports:
+      - "8080:8080"          # change the host port if 8080 is taken
+    # Hardening: non-root image user, no capabilities, read-only filesystem.
+    # fping uses unprivileged ICMP sockets, enabled by this sysctl.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"
+
+volumes:
+  pgdata:

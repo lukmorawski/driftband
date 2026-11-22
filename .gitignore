@@ -1,0 +1,20 @@
+# local settings (copy from .env.example)
+.env
+
+# local compose overrides (ports, resource limits)
+docker-compose.override.yml
+
+# build artifacts
+/backend/driftband
+
+# test suite output and browser test dependencies (scripts/test-all.sh)
+/reports/
+/tests/e2e/node_modules/
+/tests/e2e/out/
+/backend/.cover.out
+/backend/.gosec.json
+
+# database dumps written by scripts/upgrade-postgres.sh
+/backups/
+
+.DS_Store

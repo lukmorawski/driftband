@@ -1,0 +1,1 @@
+Self-hosted smoke-graph latency monitor, SmokePing reimagined: web UI, teams, 2FA, alerts.

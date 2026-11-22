@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # The Go suite, security tests included (SECURITY-TESTING.md).
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: sectest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s
+          --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: "1.27"
+          cache-dependency-path: backend/go.sum
+      - name: Format and vet
+        working-directory: backend
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+      - name: Tests
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgres://postgres:sectest@localhost:5432/postgres?sslmode=disable
+        run: go test -count=1 ./...
+
+  # The image builds and starts the way docker-compose.yml runs it.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build
+        run: docker build -t driftband:ci .
+      - name: Smoke test
+        run: scripts/smoke-test.sh driftband:ci "$(cat VERSION)"

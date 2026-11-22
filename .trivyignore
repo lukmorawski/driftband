@@ -1,0 +1,7 @@
+# Trivy findings accepted after review (scripts/test-supply-chain.sh).
+# One id per line, with the reason and date above it. Keep this file short.
+
+# 2026-10-13: golang.org/x/crypto/openpgp is reported as unmaintained. The
+# binary uses argon2 and the TLS helpers from golang.org/x/crypto only;
+# govulncheck confirms openpgp is never called.
+GO-2026-5932
