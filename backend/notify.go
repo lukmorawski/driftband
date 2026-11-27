@@ -1,11 +1,13 @@
 package main
 
 // Notification channels: where alerts are delivered (Telegram, Slack,
-// Microsoft Teams, email over SMTP with password or OAuth 2.0). A channel's
-// settings and secrets are sealed at rest (only its name and kind are stored
-// in clear) and the secrets are never returned by the API. Webhook-style targets must be
-// HTTPS on public addresses (checked on every connection, so DNS rebinding
-// cannot reach internal services).
+// Microsoft Teams, email over SMTP with password or OAuth 2.0, Zabbix). A
+// channel's settings and secrets are sealed at rest (only its name and kind
+// are stored in clear) and the secrets are never returned by the API.
+// Webhook-style targets must be HTTPS on public addresses (checked on every
+// connection, so DNS rebinding cannot reach internal services); the operator
+// can allow private addresses for an instance whose organizations are all
+// trusted (NOTIFY_PRIVATE_TARGETS).
 
 import (
 	"bytes"
@@ -29,7 +31,7 @@ import (
 	"time"
 )
 
-var channelKinds = map[string]bool{"telegram": true, "slack": true, "teams": true, "email": true}
+var channelKinds = map[string]bool{"telegram": true, "slack": true, "teams": true, "email": true, "zabbix": true}
 
 // channelConfig is the part of a channel the API shows to the organization
 // (stored sealed, together with the secrets).
@@ -48,6 +50,9 @@ type channelConfig struct {
 	ClientID      string   `json:"client_id,omitempty"`
 	TokenURL      string   `json:"token_url,omitempty"`
 	Scope         string   `json:"scope,omitempty"`
+
+	ZabbixURL  string `json:"zabbix_url,omitempty"`  // zabbix: the API endpoint
+	ZabbixHost string `json:"zabbix_host,omitempty"` // technical name of the host that has the item
 }
 
 // channelSecrets is never returned by the API.
@@ -56,6 +61,7 @@ type channelSecrets struct {
 	WebhookURL   string `json:"webhook_url,omitempty"`
 	Password     string `json:"password,omitempty"`
 	ClientSecret string `json:"client_secret,omitempty"`
+	APIToken     string `json:"api_token,omitempty"`
 }
 
 type channel struct {
@@ -83,7 +89,7 @@ func (a *App) validateChannel(c *channel, prev *channelSecrets) error {
 		return errors.New("name is required (max 100 characters)")
 	}
 	if !channelKinds[c.Kind] {
-		return errors.New("kind must be telegram, slack, teams or email")
+		return errors.New("kind must be telegram, slack, teams, email or zabbix")
 	}
 	keep := func(cur *string, old string) {
 		if strings.TrimSpace(*cur) == "" {
@@ -98,8 +104,26 @@ func (a *App) validateChannel(c *channel, prev *channelSecrets) error {
 	keep(&c.Secrets.WebhookURL, prev.WebhookURL)
 	keep(&c.Secrets.Password, prev.Password)
 	keep(&c.Secrets.ClientSecret, prev.ClientSecret)
+	keep(&c.Secrets.APIToken, prev.APIToken)
 	cfg := &c.Config
 	switch c.Kind {
+	case "zabbix":
+		api, err := zabbixAPIURL(cfg.ZabbixURL)
+		if err == nil {
+			err = a.checkPublicURL(api)
+		}
+		if err != nil {
+			return fmt.Errorf("Zabbix URL: %w", err)
+		}
+		host := strings.TrimSpace(cfg.ZabbixHost)
+		if !zabbixHostRe.MatchString(host) {
+			return errors.New("host must be the technical name of the host in Zabbix (letters, digits, spaces, dots, dashes and underscores)")
+		}
+		if !zabbixTokenRe.MatchString(c.Secrets.APIToken) {
+			return errors.New("API token is required (created in Zabbix under Users, API tokens)")
+		}
+		*c = channel{ID: c.ID, OrgID: c.OrgID, Name: c.Name, Kind: c.Kind, Enabled: c.Enabled,
+			Config: channelConfig{ZabbixURL: api, ZabbixHost: host}, Secrets: channelSecrets{APIToken: c.Secrets.APIToken}}
 	case "telegram":
 		cfg.ChatID = strings.TrimSpace(cfg.ChatID)
 		if !telegramTokenRe.MatchString(c.Secrets.BotToken) {
@@ -194,8 +218,8 @@ func (a *App) validateChannel(c *channel, prev *channelSecrets) error {
 		if cfg.Auth != "oauth2" {
 			cfg.OAuthProvider, cfg.TenantID, cfg.ClientID, cfg.TokenURL, cfg.Scope = "", "", "", "", ""
 		}
-		cfg.ChatID = ""
-		c.Secrets.BotToken, c.Secrets.WebhookURL = "", ""
+		cfg.ChatID, cfg.ZabbixURL, cfg.ZabbixHost = "", "", ""
+		c.Secrets.BotToken, c.Secrets.WebhookURL, c.Secrets.APIToken = "", "", ""
 	}
 	return nil
 }
@@ -203,7 +227,8 @@ func (a *App) validateChannel(c *channel, prev *channelSecrets) error {
 // ----- outbound HTTP with SSRF protection -----
 
 // checkPublicURL accepts https URLs whose host resolves only to public
-// addresses (connections are checked again when dialing).
+// addresses (connections are checked again when dialing). With
+// NOTIFY_PRIVATE_TARGETS the address may be private; https stays required.
 func (a *App) checkPublicURL(raw string) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" {
@@ -215,7 +240,7 @@ func (a *App) checkPublicURL(raw string) error {
 	if u.User != nil {
 		return errors.New("must not contain credentials")
 	}
-	if a.allowPrivateTargets {
+	if a.allowPrivateTargets || a.privateTargets {
 		return nil
 	}
 	ips, err := net.DefaultResolver.LookupIPAddr(context.Background(), u.Hostname())
@@ -252,7 +277,7 @@ func (a *App) httpClient() *http.Client {
 			if err != nil {
 				return nil, err
 			}
-			if !a.allowPrivateTargets {
+			if !a.allowPrivateTargets && !a.privateTargets {
 				if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); !ok || !isPublicIP(tcp.IP) {
 					conn.Close()
 					return nil, errors.New("refusing to connect to a private address")
@@ -306,6 +331,14 @@ type alertMessage struct {
 	Link    string
 	Firing  bool // colour hint
 	Neutral bool
+	Alert   *alertData // the alert behind the message; nil for a test
+}
+
+// alertData is the alert itself, for channels that take it as data.
+type alertData struct {
+	RuleID, HostID                   int64
+	Rule, Host, Address, Org, Metric string
+	Value, Threshold                 float64
 }
 
 func (m alertMessage) text() string {
@@ -350,6 +383,8 @@ func (a *App) deliver(ctx context.Context, c *channel, m alertMessage) error {
 		return a.postJSON(ctx, c.Secrets.WebhookURL, teamsCard(m))
 	case "email":
 		return a.sendMail(ctx, c, m)
+	case "zabbix":
+		return a.pushZabbix(ctx, c, m)
 	}
 	return fmt.Errorf("unknown channel kind %q", c.Kind)
 }
@@ -664,6 +699,9 @@ func channelView(c *channel) map[string]any {
 	}
 	if c.Secrets.ClientSecret != "" {
 		set["client_secret"] = true
+	}
+	if c.Secrets.APIToken != "" {
+		set["api_token"] = true
 	}
 	return map[string]any{"id": c.ID, "name": c.Name, "kind": c.Kind, "enabled": c.Enabled, "config": c.Config, "secrets_set": set}
 }

@@ -8,6 +8,7 @@ const KINDS = {
   slack: { label: "Slack", hint: "Incoming webhook to a channel." },
   teams: { label: "Microsoft Teams", hint: "Workflows webhook (Post to a channel when a webhook request is received)." },
   email: { label: "Email", hint: "SMTP with password or OAuth 2.0 (Microsoft 365)." },
+  zabbix: { label: "Zabbix", hint: "Alerts open and close problems in Zabbix 7.0 or later, through its API. Import the Driftband template into Zabbix first (see the FAQ)." },
 };
 
 function field(label, input, hint) {
@@ -104,6 +105,7 @@ export async function notificationsTab(body, ctx, canManage) {
     const cfg = c.config || {};
     if (c.kind === "telegram") return "chat " + cfg.chat_id;
     if (c.kind === "email") return (cfg.to || []).join(", ") + " via " + cfg.host + (cfg.auth === "oauth2" ? " (OAuth 2.0)" : "");
+    if (c.kind === "zabbix") return "host " + cfg.zabbix_host + " at " + (cfg.zabbix_url || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
     return c.secrets_set?.webhook_url ? "webhook set" : "-";
   }
   async function testChannel(c) {
@@ -143,6 +145,15 @@ export async function notificationsTab(body, ctx, canManage) {
     const tokenURL = h("input", { type: "text", value: cfg.oauth_provider === "custom" ? cfg.token_url || "" : "", placeholder: "https://provider/oauth2/token" });
     const scope = h("input", { type: "text", value: cfg.oauth_provider === "custom" ? cfg.scope || "" : "", placeholder: "scope" });
 
+    // zabbix
+    const zbxUrl = h("input", { type: "text", value: cfg.zabbix_url || "", placeholder: "https://zabbix.example.com" });
+    const zbxHost = h("input", { type: "text", value: cfg.zabbix_host || "", placeholder: "Driftband" });
+    const zbxToken = secretInput(set.api_token, "API token");
+    const zbxBox = h("div",
+      field("Zabbix URL", zbxUrl, "Address of the Zabbix frontend. HTTPS only."),
+      h("div.row", field("Host in Zabbix", zbxHost, "Technical name of the host linked to the Driftband template."),
+        field("API token", zbxToken, "Created in Zabbix under Users, API tokens.")));
+
     const tgBox = h("div", h("div.row", field("Bot token", botToken, "From @BotFather."), field("Chat id", chatId, "Add the bot to the chat first.")));
     const hookBox = h("div", field("Webhook URL", webhook, "HTTPS only. Treated as a secret."));
     const pwBox = h("div.row", field("Username", username), field("Password", password));
@@ -165,6 +176,7 @@ export async function notificationsTab(body, ctx, canManage) {
       const k = kind.value;
       hint.textContent = KINDS[k].hint;
       tgBox.hidden = k !== "telegram"; hookBox.hidden = k !== "slack" && k !== "teams"; mailBox.hidden = k !== "email";
+      zbxBox.hidden = k !== "zabbix";
       pwBox.hidden = auth.value !== "password"; oauthBox.hidden = auth.value !== "oauth2";
       oauthBox.querySelector(".ms").hidden = provider.value !== "microsoft";
       oauthBox.querySelector(".custom").hidden = provider.value !== "custom";
@@ -172,7 +184,7 @@ export async function notificationsTab(body, ctx, canManage) {
     [kind, auth, provider].forEach((s) => s.addEventListener("change", sync));
     sync();
     const m = wideModal(editing ? "Edit channel" : "Add channel", null,
-      [h("div.row", field("Type", kind), field("Name", name)), hint, tgBox, hookBox, mailBox, enabledRow, err],
+      [h("div.row", field("Type", kind), field("Name", name)), hint, tgBox, hookBox, mailBox, zbxBox, enabledRow, err],
       [h("button.btn.ghost", { onclick: () => m.close() }, "Cancel"), h("button.btn.primary", { onclick: save }, editing ? "Save" : "Add channel")]);
     async function save() {
       err.textContent = "";
@@ -180,6 +192,7 @@ export async function notificationsTab(body, ctx, canManage) {
       const payload = { name: name.value, kind: k, enabled: enabled.checked, config: {}, secrets: {} };
       if (k === "telegram") { payload.config.chat_id = chatId.value; payload.secrets.bot_token = botToken.value; }
       else if (k === "slack" || k === "teams") payload.secrets.webhook_url = webhook.value;
+      else if (k === "zabbix") { payload.config.zabbix_url = zbxUrl.value; payload.config.zabbix_host = zbxHost.value; payload.secrets.api_token = zbxToken.value; }
       else {
         Object.assign(payload.config, { host: host.value, port: Number(port.value), security: security.value, from: from.value,
           to: to.value.split(",").map((s) => s.trim()).filter(Boolean), auth: auth.value, username: username.value });

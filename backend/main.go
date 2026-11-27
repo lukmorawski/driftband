@@ -69,6 +69,14 @@ func main() {
 	if app.captcha != nil {
 		log.Print("TURNSTILE_ENABLE: sign-in, organization and invitation forms require a Cloudflare Turnstile check")
 	}
+	if app.privateTargets {
+		log.Print("NOTIFY_PRIVATE_TARGETS: notification channels may reach private addresses")
+	}
+	if app.sso != nil {
+		for _, p := range app.sso.providers {
+			log.Printf("single sign-on: %s is on (redirect URI %s%s)", p.name, app.appURL, ssoCallbackPath)
+		}
+	}
 	if app.testMode {
 		log.Printf("TEST_INSTANCE: test-instance limits are on (hosts %d/org by default, interval >= %ds, packet <= %d B)", testHostLimit, testMinInterval, testMaxPacket)
 	}
@@ -116,6 +124,8 @@ func (a *App) apiRoutes() []apiRoute {
 		{"GET /api/auth/invite-info", true, a.handleInviteInfo, false},
 		{"GET /api/auth/config", true, a.handleAuthConfig, false},
 		{"GET /api/health", true, a.handleHealth, false},
+		{"GET /api/auth/sso/{provider}/start", true, a.handleSSOStart, false},
+		{"POST /api/auth/sso/finish", true, a.handleSSOFinish, false},
 		{"POST /api/auth/logout", false, a.handleLogout, false},
 		{"GET /api/me", false, a.handleMe, false},
 		{"POST /api/account/password", false, a.handleChangePassword, false},
@@ -128,6 +138,10 @@ func (a *App) apiRoutes() []apiRoute {
 		{"POST /api/account/webauthn/register/begin", false, a.handleWebauthnRegisterBegin, false},
 		{"POST /api/account/webauthn/register/finish", false, a.handleWebauthnRegisterFinish, false},
 		{"POST /api/account/webauthn/{id}/delete", false, a.handleWebauthnDelete, false},
+		{"GET /api/account/sso", false, a.handleSSOList, false},
+		{"POST /api/account/sso/link", false, a.handleSSOLink, false},
+		{"POST /api/account/sso/finish", false, a.handleSSOLinkFinish, false},
+		{"POST /api/account/sso/{provider}/unlink", false, a.handleSSOUnlink, false},
 		{"POST /api/account/avatar", false, a.handleAvatarSet, false},
 		{"DELETE /api/account/avatar", false, a.handleAvatarRemove, false},
 		{"GET /api/users/{id}/avatar", false, a.handleAvatarGet, false},

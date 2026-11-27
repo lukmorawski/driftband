@@ -20,7 +20,7 @@ binary.
   |       |             per host and cycle) --------------------> your hosts
   |  rollup worker                            |
   |  alert evaluator --> notification senders -----> Telegram, Slack,
-  |  housekeeper                              |      Teams, SMTP
+  |  housekeeper                              |      Teams, SMTP, Zabbix
   +-----------------------|-------------------+
                           v
                      PostgreSQL
@@ -33,10 +33,10 @@ binary.
 | `backend/` | the Go application: API, background workers, schema, tests |
 | `web/` | the web interface: plain ES modules, no framework, no build step in development |
 | `scripts/` | test runners, the asset stamping step of the image build, the PostgreSQL upgrade |
-| `tests/e2e/` | browser tests (Playwright) |
+| `tests/e2e/` | browser tests (Playwright) and the stand-in single sign-on provider they use |
 | `tests/owasp/` | OWASP ZAP rules and the OpenAPI description used by the API scan |
 | `licenses/` | license texts of the bundled web components |
-| `docs/` | this documentation and the Docker Hub overview |
+| `docs/` | this documentation, the Docker Hub overview and the Zabbix template |
 | `Dockerfile`, `docker-compose.yml` | the image build and a ready stack |
 
 ## The path of a measurement
@@ -89,11 +89,19 @@ one message is sent and further ones are held back until the state is
 stable. A period without samples neither fires nor resolves.
 
 **Notification channels** (`notify.go`) are Telegram, Slack, Microsoft
-Teams (Workflows webhook) and email over SMTP with a password or OAuth 2.0
-client credentials. Webhook and token URLs must be HTTPS on public
-addresses; the address is checked again when the connection is made, so a
-DNS answer that changes cannot redirect a request to an internal service.
-Every delivery is recorded in the delivery log.
+Teams (Workflows webhook), email over SMTP with a password or OAuth 2.0
+client credentials, and Zabbix. Webhook, token and Zabbix URLs must be
+HTTPS on public addresses; the address is checked again when the
+connection is made, so a DNS answer that changes cannot redirect a request
+to an internal service. An operator who trusts every organization on the
+instance can allow private addresses (`NOTIFY_PRIVATE_TARGETS`). Every
+delivery is recorded in the delivery log.
+
+**Zabbix** (`zabbix.go`) is a channel of a different kind: it receives the
+state of an alert, not the messages. Each change (alerting, recovered) is
+pushed as one JSON value to a trapper item through the Zabbix API
+(`history.push`); the template in [`docs/zabbix`](zabbix/README.md) turns
+the values into problems that open and close with the alert.
 
 ## Accounts, tenants and access
 
@@ -119,6 +127,16 @@ Every delivery is recorded in the delivery log.
 - **Two-factor sign-in** (`totp.go`, `webauthn.go`): TOTP codes with
   replay protection, hardware security keys and passkeys (WebAuthn).
   Enrolled factors are a second step after the password.
+- **Single sign-on** (`sso.go`, optional): OpenID Connect with Google and
+  Microsoft Entra ID, the authorization code flow with PKCE, state and
+  nonce. The state is bound to the browser by a cookie; the provider
+  answers to the web interface, which hands the code to the API. The
+  server redeems it and verifies the ID token (signature against the
+  provider's keys, issuer, audience, expiry, nonce, tenant or Workspace
+  domain). An identity opens only the account its owner connected it to
+  (`user_identities`: provider, issuer and subject); nothing is matched by
+  email address and no account is created by a sign-in. It replaces the
+  password only: enrolled second factors are still asked for.
 - **Rate limiting** (`ratelimit.go`): failed passwords and codes are
   counted per account and per client address in a 15-minute window, in
   memory.
@@ -192,6 +210,7 @@ newer version upgrades the schema in place.
 |---|---|
 | `organizations`, `users`, `sessions`, `invites` | tenants, accounts, sign-in state |
 | `webauthn_credentials`, `webauthn_challenges`, `user_avatars` | second factors and profile pictures |
+| `user_identities` | single sign-on: the provider identities accounts are connected to |
 | `probe_profiles`, `nodes` | probe settings and the tree of folders and hosts |
 | `samples`, `sample_rollups`, `rollup_state` | measurements and their summaries |
 | `alert_rules`, `alert_state`, `notify_channels`, `notify_log` | alerting |

@@ -28,10 +28,11 @@ func (a *App) registrationOpen(ctx context.Context) bool {
 }
 
 // handleAuthConfig tells the sign-in page, before anyone has signed in,
-// whether organizations can be created and which Turnstile site key to use
-// (empty when the check is off). Nothing here is secret.
+// whether organizations can be created, which Turnstile site key to use
+// (empty when the check is off) and which single sign-on providers there
+// are. Nothing here is secret.
 func (a *App) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{"registration_open": a.registrationOpen(r.Context()), "turnstile_site_key": ""}
+	out := map[string]any{"registration_open": a.registrationOpen(r.Context()), "turnstile_site_key": "", "sso": a.sso.list()}
 	if a.captcha != nil {
 		out["turnstile_site_key"] = a.captcha.siteKey
 	}
@@ -43,6 +44,7 @@ func (a *App) handleAdminGetSettings(w http.ResponseWriter, r *http.Request) {
 		"registration_open": a.registrationOpen(r.Context()),
 		// set in the environment, shown for information
 		"turnstile_enabled": a.captcha != nil,
+		"sso":               a.sso.list(),
 	})
 }
 

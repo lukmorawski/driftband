@@ -99,8 +99,22 @@ export function renderFaq(mount) {
             h("tr", h("td", "Large packet"), h("td", "60 s"), h("td", "15"), h("td", "1400 B")),
           ))),
 
+      card("Single sign-on",
+        "Shown when the operator of this instance has turned on signing in with Google or Microsoft.",
+        steps("Connect your account", [
+          ["Open ", ui("Settings"), ", ", ui("Account"), " and find ", ui("Single sign-on"), "."],
+          ["Press ", ui("Connect"), " next to the provider and confirm with your password."],
+          ["Choose the account at the provider. You are sent back here and the connection is shown as ", ui("connected"), "."],
+          ["From then on use ", ui("Sign in with Google"), " or ", ui("Sign in with Microsoft"), " on the sign-in page."],
+        ], "Your password keeps working, and Disconnect removes the connection at any time."),
+        h("table.tbl", h("tbody",
+          defRow("Second factor", "Single sign-on replaces the password only. If your account has two-factor sign-in, you are still asked for the code, security key or passkey."),
+          defRow("\"No account here is connected\"", "The account you chose at the provider has not been connected to an account here. Accounts are never matched by email address: sign in with your password and connect it first."),
+          defRow("New people", "Joining an organization still goes through an invitation link and a password. Single sign-on can be connected afterwards."),
+        ))),
+
       card("Notifications",
-        "Settings, Notifications. Owners and admins add channels (Telegram, Slack, Microsoft Teams, email) and alert rules; members can see them.",
+        "Settings, Notifications. Owners and admins add channels (Telegram, Slack, Microsoft Teams, email, Zabbix) and alert rules; members can see them.",
         h("table.tbl", h("tbody",
           defRow("Condition", "Packet loss (%) or median latency (ms), measured over the last few probe cycles of each host, so a single bad cycle never alerts on its own."),
           defRow("for N minutes", "The condition must hold continuously for this long before the alert fires."),
@@ -149,9 +163,18 @@ export function renderFaq(mount) {
           ["Save and press ", ui("Send test"), "."],
         ], "With another provider choose \"Other provider\" and enter its token URL and scope; Driftband uses the client credentials grant and signs in to SMTP with XOAUTH2."),
 
+        steps("Zabbix", [
+          ["You need Zabbix 7.0 or later, reachable from this Driftband over HTTPS. Download the template ", code("template_driftband.yaml"), " from ", h("a", { href: "https://github.com/lukmorawski/driftband/tree/main/docs/zabbix", target: "_blank", rel: "noopener" }, "docs/zabbix"), " in the Driftband repository; the page there describes every step in detail."],
+          ["In Zabbix, import the template (Data collection, Templates, Import) and create a host for the alerts, for example ", code("Driftband"), ", linked to the template \"Driftband by Zabbix trapper\". The host needs no interface."],
+          ["Create a user role of type User whose only allowed API method is ", code("history.push"), ", a user with that role and read permission on the host's group, and an API token for that user (Users, API tokens)."],
+          ["In Driftband choose ", ui("Zabbix"), ", enter the ", ui("Zabbix URL"), " (the address of the Zabbix frontend), the ", ui("Host in Zabbix"), " (its technical host name) and the ", ui("API token"), ", save and press ", ui("Send test"), "."],
+          ["The test value appears in Zabbix under Monitoring, Latest data. Add the channel to your alert rules: a rule that starts alerting for a host opens a problem in Zabbix, and the problem closes when the host recovers."],
+        ], "Zabbix follows the state of an alert: it gets every change, also from rules without a recovery notice, and no reminders. A problem can also be closed by hand in Zabbix."),
+
         h("p.sub", { style: "margin:18px 0 8px" }, "When a test fails"),
         h("table.tbl", h("tbody",
-          defRow("Webhook URL refused", "Webhook and token URLs must be HTTPS and must point to a public address. Addresses of your internal network are refused on purpose."),
+          defRow("Webhook URL refused", "Webhook, token and Zabbix URLs must be HTTPS and must point to a public address. Addresses of an internal network are refused unless the operator of this instance has allowed them."),
+          defRow("Zabbix did not take the value", "The host name must be the technical name of a host linked to the template, the user needs read permission on its host group, and the user's role must allow the API method history.push."),
           defRow("Authentication failed", "Check the username, use an app password where the provider requires one, and for Microsoft 365 check the admin consent and the mailbox permission."),
           defRow("No STARTTLS offered", "The server speaks implicit TLS on that port (use TLS, usually port 465) or no encryption at all."),
           defRow("Where to look", "Recent notifications (Settings, Notifications, or Active Alerts in the top bar) lists every delivery with the error the service returned."),

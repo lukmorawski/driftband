@@ -178,6 +178,38 @@ test.describe("settings @e2e", () => {
     await expect(card(page, "Channels")).toContainText("No channels yet");
   });
 
+  test("notifications: a Zabbix channel keeps its API token", async ({ page }) => {
+    await signedIn(page, "zabbix");
+    await settingsTab(page, "Notifications");
+    await card(page, "Channels").locator("button", { hasText: "Add channel" }).click();
+    const modal = page.locator(".modal");
+    await field(modal, "Type").selectOption("zabbix");
+    await expect(modal.locator(".hint", { hasText: "Zabbix 7.0 or later" })).toBeVisible();
+    await page.getByPlaceholder("e.g. NOC on-call").fill("Zabbix NOC");
+    const token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    // plain http is refused: the token would travel in clear
+    await field(modal, "Zabbix URL").fill("http://zabbix.example.com");
+    await field(modal, "Host in Zabbix").fill("Driftband");
+    await field(modal, "API token").fill(token);
+    await modal.locator("button", { hasText: "Add channel" }).click();
+    await expect(modal.locator(".error-text")).toHaveText("Zabbix URL: must use https");
+    await field(modal, "Zabbix URL").fill("https://example.com/zabbix");
+    await modal.locator("button", { hasText: "Add channel" }).click();
+    await expect(page.locator(".toast.ok", { hasText: "Channel saved" }).last()).toBeVisible();
+    const chRow = card(page, "Channels").locator("tbody tr", { hasText: "Zabbix NOC" });
+    await expect(chRow).toContainText("host Driftband at example.com");
+    await expect(chRow.locator(".badge").first()).toHaveText("Zabbix");
+    // the token is never shown again, in the UI or the API
+    await chRow.locator("button", { hasText: "Edit" }).click();
+    await expect(field(page.locator(".modal"), "API token")).toHaveValue("");
+    await expect(field(page.locator(".modal"), "Zabbix URL")).toHaveValue("https://example.com/zabbix/api_jsonrpc.php");
+    await page.locator(".modal button", { hasText: "Cancel" }).click();
+    expect(await (await page.request.get("/api/notify/channels")).text()).not.toContain(token);
+    await chRow.locator("button", { hasText: "Delete" }).click();
+    await confirm(page, "Delete");
+    await expect(card(page, "Channels")).toContainText("No channels yet");
+  });
+
   test("retention, usage and the audit log", async ({ page }) => {
     const acc = await signedIn(page, "misc");
     await page.request.post("/api/nodes", { data: { kind: "host", name: "audited", host: "192.0.2.77" } });

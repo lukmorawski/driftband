@@ -62,6 +62,37 @@ var securityMatrix = map[string]routeSpec{
 		call: func(e *env, o *org, a *actor) (string, any) { return "/api/auth/config", nil }},
 	"GET /api/health": {minRole: "public",
 		call: func(e *env, o *org, a *actor) (string, any) { return "/api/health", nil }},
+	"GET /api/auth/sso/{provider}/start": {minRole: "public",
+		call: func(e *env, o *org, a *actor) (string, any) { return "/api/auth/sso/google/start", nil }},
+	// The caller is the browser that started the sign-in: it carries the
+	// flow's cookie; the account is connected to the identity beforehand.
+	"POST /api/auth/sso/finish": {minRole: "public", audit: "auth.login",
+		call: func(e *env, o *org, a *actor) (string, any) {
+			sub := newSub("matrix")
+			e.ssoConnect(a, "google", sub, "")
+			e.idp.as(sub, "", nil)
+			ans := e.ssoStart("google")
+			a.Extra = []*http.Cookie{ans.Cookie}
+			return "/api/auth/sso/finish", ans.body()
+		}},
+	"GET /api/account/sso": {minRole: "member",
+		call: func(e *env, o *org, a *actor) (string, any) { return "/api/account/sso", nil }},
+	"POST /api/account/sso/link": {minRole: "member", audit: "account.sso_setup",
+		call: func(e *env, o *org, a *actor) (string, any) {
+			return "/api/account/sso/link", map[string]any{"provider": "entra", "password": a.Password}
+		}},
+	"POST /api/account/sso/finish": {minRole: "member", audit: "account.sso_add",
+		call: func(e *env, o *org, a *actor) (string, any) {
+			e.idp.as(newSub("matrix"), "", nil)
+			ans := e.ssoLinkStart(a, "entra")
+			a.Extra = []*http.Cookie{ans.Cookie}
+			return "/api/account/sso/finish", ans.body()
+		}},
+	"POST /api/account/sso/{provider}/unlink": {minRole: "member", audit: "account.sso_remove",
+		call: func(e *env, o *org, a *actor) (string, any) {
+			e.ssoConnect(a, "google", newSub("matrix"), "")
+			return "/api/account/sso/google/unlink", map[string]any{"password": a.Password}
+		}},
 	"POST /api/auth/logout": {minRole: "member", audit: "auth.logout",
 		call: func(e *env, o *org, a *actor) (string, any) { return "/api/auth/logout", nil }},
 	"GET /api/me": {minRole: "member",

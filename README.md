@@ -20,18 +20,21 @@ the browser.
   (interval, pings per cycle, packet size) and import of a SmokePing
   `Targets` configuration.
 - **Alerts** on packet loss or latency with hold times, hysteresis and flap
-  suppression, delivered to Telegram, Slack, Microsoft Teams or email.
-- **Organizations and roles**, invitations, two-factor sign-in (security
-  keys, passkeys, TOTP), an audit log of every action.
+  suppression, delivered to Telegram, Slack, Microsoft Teams or email, or
+  mirrored as problems in [Zabbix](docs/zabbix/README.md).
+- **Organizations and roles**, invitations, single sign-on with Google and
+  Microsoft Entra ID, two-factor sign-in (security keys, passkeys, TOTP),
+  an audit log of every action.
 - **Years of history**: long ranges are served from 5-minute and 1-hour
   rollups; each organization keeps 1, 2 or 3 years.
 
 Driftband is a new implementation in Go and JavaScript. It reuses
 SmokePing's idea, not its code (see [NOTICE](NOTICE)).
 
-Website: <https://driftband.app>. To try it without installing anything,
-use the public test instance at <https://test.driftband.app> (10 hosts per
-organization).
+Website: <https://driftband.app>. New features and fixes of every release:
+[What's new](https://driftband.app/whats-new/). To try it without
+installing anything, use the public test instance at
+<https://test.driftband.app> (10 hosts per organization).
 
 ## Quick start
 
@@ -63,14 +66,15 @@ docker compose up -d --build
 
 | | |
 |---|---|
-| [Configuration](docs/CONFIGURATION.md) | every setting, reverse proxy examples, registration and invitations, Turnstile, monitoring, backups, upgrades |
+| [Configuration](docs/CONFIGURATION.md) | every setting, reverse proxy examples, registration and invitations, single sign-on, Turnstile, monitoring, backups, upgrades |
+| [Zabbix](docs/zabbix/README.md) | Driftband alerts as problems in Zabbix, with the template to import |
 | [Architecture](docs/ARCHITECTURE.md) | the components of the system and how a measurement travels through them |
 | [Docker image](docs/dockerhub/README.md) | compose file, tags, container hardening |
 | [Testing](TESTING.md) | the four test layers and how to run them |
 | [Security testing](SECURITY-TESTING.md) | what the security suite guarantees and how to extend it |
 | [Security policy](SECURITY.md) | reporting a vulnerability |
 | [Contributing](CONTRIBUTING.md) | development setup, sign-off, releases |
-| [Changelog](CHANGELOG.md) | what changed in each release |
+| [Changelog](CHANGELOG.md) | what changed in each release; the highlights are on [What's new](https://driftband.app/whats-new/) |
 
 ## Responsible use
 

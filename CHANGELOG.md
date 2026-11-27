@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
+### Added
+- Single sign-on with Google and Microsoft Entra ID (OpenID Connect,
+  authorization code flow with PKCE), off until configured
+  (`SSO_GOOGLE_...`, `SSO_ENTRA_...`). People connect their account in
+  Settings, Account, confirming with the password; a sign-in finds its
+  account by the provider's subject only, never by email address, and no
+  account is created by a sign-in. An account's second factor is still
+  asked for. An administrator's password reset removes the connections.
+- Zabbix as a notification channel: alerts open and close problems in
+  Zabbix 7.0 or later through its API (`history.push`), with a template to
+  import (`docs/zabbix`). Zabbix follows the state of an alert: it gets
+  every change, also from rules without recovery notices, and no reminders.
+- `NOTIFY_PRIVATE_TARGETS`: an operator who trusts every organization on
+  the instance can let notification channels reach private addresses.
+  HTTPS stays required.
+- A "What's new" link in the footer.
+
+### Fixed
+- With Turnstile off, the sign-in, organization and invitation forms
+  showed the word "null" above their button.
+
+### Changed
+- Documentation: single sign-on, notifications to internal systems and
+  private certificate authorities, Zabbix.
+
 ## [0.1.1] - 2026-11-22
 
 ### Added
@@ -83,6 +110,7 @@ First public release.
 - Test suite on four layers: backend with the security matrix over every
   API route, supply chain scanning, browser tests and OWASP ZAP.
 
-[Unreleased]: https://github.com/lukmorawski/driftband/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/lukmorawski/driftband/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/lukmorawski/driftband/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/lukmorawski/driftband/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/lukmorawski/driftband/releases/tag/v0.1.0

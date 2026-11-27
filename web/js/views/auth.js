@@ -7,7 +7,7 @@ import { captcha, CAPTCHA_WAIT } from "../turnstile.js";
 // defaults; the server enforces its settings either way.
 async function authConfig() {
   try { return await api.authConfig(); }
-  catch (e) { return { registration_open: true, turnstile_site_key: "" }; }
+  catch (e) { return { registration_open: true, turnstile_site_key: "", sso: [] }; }
 }
 
 function field(label, input) {
@@ -119,9 +119,10 @@ export async function renderAuth(mount, { onAuthed }) {
         field("Email", email),
         field("Password", onEnter(pw, submit)),
         codeField,
-        check.el,
+        ...widget(check),
         h("button.btn.primary", { style: "width:100%", onclick: submit }, "Sign in"),
         keyBtn,
+        ...ssoButtons(cfg.sso),
       );
     } else {
       const org = h("input", { type: "text", placeholder: "Acme Inc." });
@@ -138,7 +139,7 @@ export async function renderAuth(mount, { onAuthed }) {
         field("Organization name", org),
         field("Your email", email),
         field("Password", onEnter(pw, submit)),
-        check.el,
+        ...widget(check),
         h("button.btn.primary", { style: "width:100%", onclick: submit }, "Create organization"),
         h("p.hint", "You become the owner. Invite teammates afterwards from Settings."),
       );
@@ -175,10 +176,107 @@ export async function renderAccept(mount, token, { onAuthed }) {
     h("p.sub", { style: "text-align:center" }, `Join ${info.org} as ${info.role}`),
     field("Email", email),
     field("Password", onEnter(pw, submit)),
-    check.el,
+    ...widget(check),
     h("button.btn.primary", { style: "width:100%", onclick: submit }, "Join organization"),
     err,
   );
+}
+
+// The verification widget as form content: nothing when the check is off.
+function widget(check) { return check.el ? [check.el] : []; }
+
+// One button per single sign-on provider of this instance. They are plain
+// links: the server sends the browser on to the provider.
+function ssoButtons(list) {
+  if (!list || !list.length) return [];
+  return [
+    h("div.auth-sep", h("span", "or")),
+    ...list.map((p) => h("a.btn.auth-sso", { href: `/api/auth/sso/${encodeURIComponent(p.id)}/start` }, `Sign in with ${p.name}`)),
+  ];
+}
+
+// The page the provider sends the browser back to (/sso?code=...&state=...).
+// params is that query string; the address bar has been cleaned already.
+// A sign-in is finished here, with the second factor when the account has
+// one; a request to connect an account is stored. onAuthed runs after a
+// sign-in, onDone(tab) leads back into the application.
+export async function renderSsoReturn(mount, params, { onAuthed, onDone }) {
+  clear(mount);
+  const state = params.get("state") || "";
+  const linking = state.startsWith("link.");
+  const msg = h("p.sub", { style: "text-align:center" }, linking ? "Connecting the account..." : "Signing in...");
+  const err = h("p.error-text");
+  const formHost = h("div");
+  const back = h("a", { href: "#/dashboard", hidden: true, style: "display:block;text-align:center;margin-top:10px",
+    onclick: (e) => { e.preventDefault(); onDone(linking ? "/settings" : "/dashboard"); } }, linking ? "Back to settings" : "Back to sign in");
+  const wrap = authShell(msg, formHost, err, back);
+  mount.append(wrap);
+  const fail = (text) => { msg.hidden = true; err.textContent = text; back.hidden = false; };
+
+  if (params.get("error")) {
+    fail(params.get("error") === "access_denied" ? "The sign-in was cancelled."
+      : params.get("error") === "temporarily_unavailable" ? "This sign-in method cannot be reached right now. Try again in a moment."
+      : "The sign-in provider reported an error. Try again.");
+    return;
+  }
+  const answer = { state, authorization_code: params.get("code") || "" };
+
+  if (linking) {
+    try {
+      const r = await api.ssoLinkFinish(answer);
+      toast(`Your ${r.name} account is connected`, "ok");
+      onDone("/settings");
+    } catch (e) { fail(e.status === 401 ? "Sign in first, then connect the account under Settings, Account." : e.message); }
+    return;
+  }
+
+  let challenge = null; // { token, options } for a security key or passkey
+  const send = async (extra) => {
+    try { await api.ssoFinish({ ...answer, ...extra }); onAuthed(); return null; }
+    catch (e) { return e; }
+  };
+  const first = await send({});
+  if (!first) return;
+  if (!(first.data && first.data.two_factor_required)) { fail(first.message); return; }
+
+  // The provider vouched for the first factor; the account's second one follows.
+  const code = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "6", placeholder: "123456" });
+  const codeField = field("Two-factor code", onEnter(code, () => submit()));
+  const keyBtn = h("button.btn.auth-key", { type: "button", onclick: () => useKey() }, "Use security key or passkey");
+  const go = h("button.btn.primary", { style: "width:100%", onclick: () => submit() }, "Sign in");
+  const ask = (e) => {
+    const d = e.data || {};
+    if (!d.two_factor_required) { clear(formHost); fail(e.message); return false; }
+    const methods = d.methods || [];
+    challenge = d.webauthn || null;
+    codeField.hidden = go.hidden = !methods.includes("totp");
+    keyBtn.hidden = !challenge;
+    return true;
+  };
+  async function submit() {
+    err.textContent = "";
+    const e = await send({ code: code.value });
+    if (e && ask(e)) { err.textContent = e.message; code.value = ""; code.focus(); }
+  }
+  async function useKey() {
+    if (!challenge) return;
+    err.textContent = "Waiting for your security key or passkey: follow your browser's prompt.";
+    const ch = challenge;
+    let credential;
+    keyBtn.disabled = true;
+    try { credential = await getAssertion(ch.options); }
+    catch (e) { err.textContent = webauthnError(e); keyBtn.disabled = false; return; }
+    const e = await send({ webauthn_token: ch.token, credential });
+    keyBtn.disabled = false;
+    if (e && ask(e)) err.textContent = e.message;
+  }
+  formHost.append(codeField, go, keyBtn);
+  if (!ask(first)) return;
+  msg.textContent = "One more step: your second factor.";
+  if (challenge && !webauthnSupported()) err.textContent = "This browser or address cannot use security keys" + (codeField.hidden ? "." : "; enter the code from your authenticator app.");
+  else if (challenge && codeField.hidden) useKey();
+  else if (!codeField.hidden) code.focus();
+  else err.textContent = first.message;
 }
 
 function onEnter(input, fn) { input.addEventListener("keydown", (e) => { if (e.key === "Enter") fn(); }); return input; }

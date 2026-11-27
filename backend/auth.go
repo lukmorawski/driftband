@@ -188,11 +188,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
-		Code     string `json:"code"` // TOTP code, when that is the second factor used
-		// Answer of a security key or passkey to the challenge issued after
-		// the password was accepted (see webauthn.go).
-		WebauthnToken string          `json:"webauthn_token"`
-		Credential    json.RawMessage `json:"credential"`
+		secondFactorInput
 		// Turnstile (when enabled): the widget's token, or on the request
 		// that brings the second factor the pass issued with the first answer.
 		TurnstileToken string `json:"turnstile_token"`
@@ -221,16 +217,14 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userID, orgID int64
+	acct := account{email: in.Email}
 	var ph string
-	var totpEnabled, blocked bool
-	var totpSecret *string
-	var totpLastStep int64
+	var blocked bool
 	err := a.db.QueryRow(ctx,
 		`SELECT u.id, u.org_id, u.password_hash, u.totp_enabled, u.totp_secret, u.totp_last_step,
 		        u.disabled OR o.disabled
 		 FROM users u JOIN organizations o ON o.id = u.org_id WHERE u.email = $1`, in.Email).
-		Scan(&userID, &orgID, &ph, &totpEnabled, &totpSecret, &totpLastStep, &blocked)
+		Scan(&acct.userID, &acct.orgID, &ph, &acct.totpEnabled, &acct.totpSecret, &acct.totpLastStep, &blocked)
 	if err != nil {
 		// Unknown email: still pay for one hash so response time does not
 		// reveal which emails have accounts. No org to file it under, so it
@@ -241,6 +235,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "invalid email or password")
 		return
 	}
+	userID, orgID := acct.userID, acct.orgID
 	if !verifyPassword(in.Password, ph) {
 		a.limiter.fail(ipKey, acctKey)
 		a.auditAnon(ctx, orgID, in.Email, ip, "auth.login_failed", "wrong password")
@@ -253,80 +248,19 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "this account is blocked; contact the administrator")
 		return
 	}
-	// Second factor: a TOTP code, or a security key / passkey. With none
-	// supplied the answer lists what the account accepts (and a fresh
-	// challenge for its keys); the frontend then retries with one of them.
-	wu, err := a.webauthnUser(ctx, userID, in.Email)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+	used, ok := a.secondFactor(w, r, acct, in.secondFactorInput, func(out map[string]any) {
+		if a.captcha != nil {
+			// The password was right: the request with the second factor
+			// presents this instead of solving the challenge again.
+			if a.captcha.passValid(in.CaptchaPass, in.Email) {
+				out["captcha_pass"] = in.CaptchaPass
+			} else {
+				out["captcha_pass"] = a.captcha.issue(in.Email)
+			}
+		}
+	})
+	if !ok {
 		return
-	}
-	hasTotp := totpEnabled && totpSecret != nil
-	used := ""
-	if hasTotp || len(wu.creds) > 0 || wu.broken > 0 {
-		need := func(msg string) {
-			out := map[string]any{"error": msg, "two_factor_required": true, "totp_required": hasTotp}
-			methods := []string{}
-			if hasTotp {
-				methods = append(methods, "totp")
-			}
-			if len(wu.creds) > 0 {
-				if opts, err := a.webauthnLoginOptions(r, wu); err == nil {
-					methods = append(methods, "webauthn")
-					out["webauthn"] = opts
-				} else if !hasTotp {
-					out["error"] = err.Error()
-				}
-			}
-			if len(methods) == 0 && wu.broken > 0 {
-				// The account is protected by keys this server can no longer
-				// read. The password alone must not be enough: an
-				// administrator resets the two-factor instead.
-				out["error"] = "your security keys cannot be used on this server; ask an administrator to reset your two-factor authentication"
-			}
-			out["methods"] = methods
-			if a.captcha != nil {
-				// The password was right: the request with the second factor
-				// presents this instead of solving the challenge again.
-				if a.captcha.passValid(in.CaptchaPass, in.Email) {
-					out["captcha_pass"] = in.CaptchaPass
-				} else {
-					out["captcha_pass"] = a.captcha.issue(in.Email)
-				}
-			}
-			writeJSON(w, http.StatusUnauthorized, out)
-		}
-		code := strings.TrimSpace(in.Code)
-		switch {
-		case len(in.Credential) > 0 && len(wu.creds) > 0:
-			c, err := a.webauthnLogin(r, wu, in.WebauthnToken, in.Credential)
-			if err != nil {
-				a.limiter.fail(ipKey, acctKey)
-				a.auditAnon(ctx, orgID, in.Email, ip, "auth.login_failed", "security key or passkey not accepted: "+err.Error())
-				need("the security key or passkey was not accepted")
-				return
-			}
-			used = kindLabel(c.Kind)
-		case code != "" && hasTotp:
-			// A stored secret that does not open accepts no code at all.
-			var step int64
-			ok := false
-			if secret, err := a.openTotp(userID, *totpSecret); err == nil {
-				step, ok = verifyTotp(secret, code, totpLastStep)
-			}
-			if !ok {
-				a.limiter.fail(ipKey, acctKey)
-				a.auditAnon(ctx, orgID, in.Email, ip, "auth.login_failed", "wrong two-factor code")
-				need("invalid two-factor code")
-				return
-			}
-			_, _ = a.db.Exec(ctx, `UPDATE users SET totp_last_step = $1 WHERE id = $2`, step, userID)
-			used = "TOTP code"
-		default:
-			// Password was correct; the frontend asks for the second factor.
-			need("two-factor authentication required")
-			return
-		}
 	}
 	if err := a.createSession(ctx, w, r, userID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "session failed")
@@ -339,6 +273,103 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	a.auditAnon(ctx, orgID, in.Email, ip, "auth.login", detail)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// account is what a sign-in needs to know about a user once the first
+// factor (the password, or single sign-on) was accepted.
+type account struct {
+	userID, orgID int64
+	email         string
+	totpEnabled   bool
+	totpSecret    *string
+	totpLastStep  int64
+}
+
+// secondFactorInput is the part of a sign-in request that answers the
+// second factor.
+type secondFactorInput struct {
+	Code string `json:"code"` // TOTP code, when that is the second factor used
+	// Answer of a security key or passkey to the challenge issued after
+	// the first factor was accepted (see webauthn.go).
+	WebauthnToken string          `json:"webauthn_token"`
+	Credential    json.RawMessage `json:"credential"`
+}
+
+// secondFactor checks the account's second factor: a TOTP code, or a
+// security key / passkey. An account without one passes. With none supplied
+// the answer lists what the account accepts (and a fresh challenge for its
+// keys); the frontend then retries with one of them. It returns what was
+// used; when ok is false the response has been written. decorate may add
+// to the answer that asks for the factor.
+func (a *App) secondFactor(w http.ResponseWriter, r *http.Request, acct account, in secondFactorInput, decorate func(map[string]any)) (used string, ok bool) {
+	ctx := r.Context()
+	ip := clientIP(r)
+	ipKey, acctKey := "login-ip:"+ip, "login-email:"+acct.email
+	wu, err := a.webauthnUser(ctx, acct.userID, acct.email)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "db error")
+		return "", false
+	}
+	hasTotp := acct.totpEnabled && acct.totpSecret != nil
+	if !hasTotp && len(wu.creds) == 0 && wu.broken == 0 {
+		return "", true
+	}
+	need := func(msg string) {
+		out := map[string]any{"error": msg, "two_factor_required": true, "totp_required": hasTotp}
+		methods := []string{}
+		if hasTotp {
+			methods = append(methods, "totp")
+		}
+		if len(wu.creds) > 0 {
+			if opts, err := a.webauthnLoginOptions(r, wu); err == nil {
+				methods = append(methods, "webauthn")
+				out["webauthn"] = opts
+			} else if !hasTotp {
+				out["error"] = err.Error()
+			}
+		}
+		if len(methods) == 0 && wu.broken > 0 {
+			// The account is protected by keys this server can no longer
+			// read. The first factor alone must not be enough: an
+			// administrator resets the two-factor instead.
+			out["error"] = "your security keys cannot be used on this server; ask an administrator to reset your two-factor authentication"
+		}
+		out["methods"] = methods
+		if decorate != nil {
+			decorate(out)
+		}
+		writeJSON(w, http.StatusUnauthorized, out)
+	}
+	code := strings.TrimSpace(in.Code)
+	switch {
+	case len(in.Credential) > 0 && len(wu.creds) > 0:
+		c, err := a.webauthnLogin(r, wu, in.WebauthnToken, in.Credential)
+		if err != nil {
+			a.limiter.fail(ipKey, acctKey)
+			a.auditAnon(ctx, acct.orgID, acct.email, ip, "auth.login_failed", "security key or passkey not accepted: "+err.Error())
+			need("the security key or passkey was not accepted")
+			return "", false
+		}
+		return kindLabel(c.Kind), true
+	case code != "" && hasTotp:
+		// A stored secret that does not open accepts no code at all.
+		var step int64
+		valid := false
+		if secret, err := a.openTotp(acct.userID, *acct.totpSecret); err == nil {
+			step, valid = verifyTotp(secret, code, acct.totpLastStep)
+		}
+		if !valid {
+			a.limiter.fail(ipKey, acctKey)
+			a.auditAnon(ctx, acct.orgID, acct.email, ip, "auth.login_failed", "wrong two-factor code")
+			need("invalid two-factor code")
+			return "", false
+		}
+		_, _ = a.db.Exec(ctx, `UPDATE users SET totp_last_step = $1 WHERE id = $2`, step, acct.userID)
+		return "TOTP code", true
+	}
+	// The first factor was correct; the frontend asks for the second.
+	need("two-factor authentication required")
+	return "", false
 }
 
 func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {

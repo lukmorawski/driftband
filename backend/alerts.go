@@ -550,22 +550,33 @@ func (a *App) evaluateRule(ctx context.Context, rl *alertRule, now time.Time, wg
 	for _, h := range hosts {
 		s, _ := a.loadState(ctx, rl.ID, h.id)
 		v, ok := a.measure(ctx, rl, h, now)
+		was := s.Firing
 		event := step(rl, &s, v, ok, now)
 		if event != "" {
 			t := now
 			s.LastNotified = &t
 		}
 		a.saveState(ctx, rl.ID, h.id, s)
-		if event == "" {
-			continue
+		// What the state did, whatever was decided about notifying people
+		// (no recovery notice, held back while flapping).
+		change := ""
+		if s.Firing != was {
+			change = map[bool]string{true: "firing", false: "resolved"}[s.Firing]
 		}
-		m := a.buildMessage(rl, h, orgName, event, s, v)
 		for _, c := range chans {
+			ev := event
+			if c.Kind == "zabbix" {
+				ev = change // Zabbix mirrors the state: see zabbix.go
+			}
+			if ev == "" {
+				continue
+			}
+			m := a.buildMessage(rl, h, orgName, ev, s, v)
 			wg.Add(1)
 			go func(c *channel) {
 				defer wg.Done()
 				err := a.deliverWithRetry(ctx, c, m)
-				a.logDelivery(context.Background(), rl.orgID, rl.ID, h.id, c.ID, event, m, err)
+				a.logDelivery(context.Background(), rl.orgID, rl.ID, h.id, c.ID, ev, m, err)
 			}(c)
 		}
 	}
@@ -598,7 +609,8 @@ func (a *App) buildMessage(rl *alertRule, h hostInfo, org, event string, s alert
 	}
 	val := strconv.FormatFloat(v, 'f', 1, 64) + unit
 	thr := fmtNum(rl.Threshold) + unit
-	m := alertMessage{Event: event, Link: a.appURL}
+	m := alertMessage{Event: event, Link: a.appURL, Alert: &alertData{RuleID: rl.ID, HostID: h.id, Rule: rl.Name,
+		Host: h.name, Address: h.addr, Org: org, Metric: rl.Metric, Value: v, Threshold: rl.Threshold}}
 	switch event {
 	case "firing":
 		m.Firing = true

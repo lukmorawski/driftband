@@ -63,7 +63,10 @@ memory, and no port published on the host. The tools join its Docker
 network and use `http://sut:8080`. Security keys and passkeys need a secure
 context and a host name of two labels, so the stack also answers to
 `http://driftband.localhost:8080` (its `APP_URL`); the WebAuthn browser
-tests use that address with Chromium's virtual authenticators. The stack is
+tests use that address with Chromium's virtual authenticators. Single
+sign-on is tested against a stand-in provider (`tests/e2e/idp`, started
+with the stack) in the role of Microsoft Entra ID; the application is told
+to trust its certificate. The stack is
 seeded with a platform administrator and an organization for the scanner;
 their credentials are written to `DIR/stack.env` (mode 600) and passed to
 the tools. The stack is removed after the run (`scripts/test-stack.sh down`).
@@ -106,10 +109,10 @@ run the frontend layer once (the lock file is updated in place).
 | A04 Insecure design | `TestAvatarUpload`, `TestAvatarParsersOnGarbage` (file type, size and pixel limits, decompression bombs), `TestLoginRateLimited`, `TestPasswordConfirmationRateLimited`, `TestLoginDoesNotRevealAccounts`, `TestTurnstile` (no password is checked before the challenge is passed), limits and profile rules, alert evaluator tests (no false positives, flap suppression); "ten wrong passwords lock the account" (browser) |
 | A05 Security misconfiguration | `TestSecurityHeaders`, `TestStaticFilesConfined`, `TestClientIPNotSpoofable`, `TestHealth`; "security headers", "the application cannot be framed", "cross-site requests cannot act on the session" (browser); Trivy misconfiguration rules for the Dockerfile and compose; the hardened container runs the browser tests; ZAP header rules |
 | A06 Vulnerable and outdated components | govulncheck (Go modules in the binary's call graph), Trivy (image packages and modules), the pinned base images |
-| A07 Identification and authentication failures | `TestTwoFactor`, `TestSecurityKeyAsSecondFactor`, `TestPasskeyEnrollmentRules`, `TestSessionTokens`, `TestPasswordChange`, `TestEmailChange`, `TestInvites`, `TestUserRemovalRules`, `TestAdminBlockUser`; the authentication and team flows, "security key" and "passkey" with virtual authenticators (browser) |
+| A07 Identification and authentication failures | `TestTwoFactor`, `TestSecurityKeyAsSecondFactor`, `TestPasskeyEnrollmentRules`, `TestSessionTokens`, `TestPasswordChange`, `TestEmailChange`, `TestInvites`, `TestUserRemovalRules`, `TestAdminBlockUser`, the single sign-on tests (`TestSSOTokenIsVerified`, `TestSSONeverMatchesByEmail`, `TestSSOFlowIsBoundToItsBrowser`, `TestSSOCodeIsProtected`, `TestSSOKeepsTheSecondFactor`); the authentication and team flows, "security key" and "passkey" with virtual authenticators, single sign-on against a stand-in provider (browser) |
 | A08 Software and data integrity failures | gitleaks and Trivy secret scanning; no third-party scripts in the application (browser); import validation; the release workflow attaches an SBOM and provenance |
 | A09 Security logging and monitoring failures | `TestEveryChangeIsAudited` (every state change, with user and client IP), `TestAdminViewsAndGlobalAudit`; "retention, usage and the audit log" and the tenant view of admin actions (browser) |
-| A10 Server-side request forgery | `TestWebhookSSRFBlocked`, `TestChannelValidation` (HTTPS, public addresses, re-checked on connect) |
+| A10 Server-side request forgery | `TestWebhookSSRFBlocked`, `TestChannelValidation`, `TestZabbixPrivateTargets` (HTTPS, public addresses unless the operator allows private ones, re-checked on connect), `TestSSODiscoveryIsChecked` |
 
 ## Every change extends the suite
 

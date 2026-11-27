@@ -1,7 +1,7 @@
 // Driftband SPA entry: routing, auth gate, nav + footer shell.
 import { api } from "./js/api.js";
 import { h, clear, applyTheme, currentTheme, toggleTheme, isWide, icons, toast, avatar } from "./js/ui.js";
-import { renderAuth, renderAccept } from "./js/views/auth.js";
+import { renderAuth, renderAccept, renderSsoReturn } from "./js/views/auth.js";
 import { renderDashboard } from "./js/views/dashboard.js";
 import { renderSettings } from "./js/views/settings.js";
 import { renderFaq } from "./js/views/faq.js";
@@ -10,6 +10,15 @@ import { renderAlerts } from "./js/views/alerts.js";
 
 const root = document.getElementById("root");
 let me = null;
+
+// A single sign-on provider sends the browser back to /sso with its answer
+// in the query string. The answer is taken out of the address bar (and the
+// history) before anything else happens.
+let ssoReturn = null;
+if (location.pathname === "/sso") {
+  ssoReturn = new URLSearchParams(location.search);
+  history.replaceState(null, "", "/");
+}
 
 applyTheme(currentTheme());
 window.addEventListener("hashchange", route);
@@ -29,6 +38,13 @@ function navigate(path) {
 
 async function route() {
   const { path, params } = parseHash();
+
+  if (ssoReturn) {
+    const answer = ssoReturn;
+    ssoReturn = null;
+    renderSsoReturn(root, answer, { onAuthed: afterAuth, onDone: (to) => { me = null; navigate(to); } });
+    return;
+  }
 
   // Invite acceptance works without a session.
   if (path === "/accept") {
@@ -92,6 +108,7 @@ function renderShell(path, params) {
       h("div", "Driftband" + (me.version ? " " + me.version : "") + " · ICMP latency monitor"),
       h("div", { class: "muted", style: "display:flex;gap:16px;align-items:center;flex-wrap:wrap" },
         h("a", { href: "https://driftband.app", target: "_blank", rel: "noopener" }, "driftband.app"),
+        h("a", { href: "https://driftband.app/whats-new/", target: "_blank", rel: "noopener" }, "What's new"),
         h("a", { href: "https://github.com/lukmorawski/driftband", target: "_blank", rel: "noopener" }, "Source"),
         h("a", { href: "https://buymeacoffee.com/lukmorawski", target: "_blank", rel: "noopener" }, "Buy me a coffee"),
         h("a", { href: "https://www.gnu.org/licenses/agpl-3.0.html", target: "_blank", rel: "noopener" }, "AGPL-3.0"),

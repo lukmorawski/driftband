@@ -146,6 +146,29 @@ function accountTab(body, ctx) {
     } }, "Change password"),
   );
 
+  // single sign-on: the providers this instance offers and which of them
+  // this account is connected to. Hidden when there is nothing to show.
+  const ssoCard = h("div.card", { hidden: true });
+  async function loadSso() {
+    let list = [];
+    try { list = await api.ssoList(); } catch (e) { /* leave the card hidden */ }
+    ssoCard.hidden = list.length === 0;
+    clear(ssoCard).append(
+      h("h2", "Single sign-on"),
+      h("p.sub", "Connect this account to sign in with a button instead of the password. Your second factor, if you have one, is still asked for."),
+      ...list.map((p) => methodRow(p.name,
+        p.connected
+          ? `Connected${p.email ? " as " + p.email : ""} on ${fmtDateTime(p.connected_at).slice(0, 10)}, ${p.last_used_at ? "last used " + fmtRelative(p.last_used_at) : "not used yet"}.`
+          : `Sign in here with your ${p.name} account.`,
+        p.connected ? h("span.badge.ok", "connected") : h("span.badge.muted", "not connected"),
+        p.connected
+          ? h("button.btn.sm.danger", { onclick: () => confirmWithPassword(`Disconnect ${p.name}?`, `Signing in with ${p.name} will stop working for this account. Your password keeps working.`, [], "Disconnect", true,
+              async (password, m) => { await api.ssoUnlink(p.id, password); m.close(); toast(`${p.name} disconnected`, "ok"); loadSso(); }) }, "Disconnect")
+          : h("button.btn.sm.primary", { disabled: !p.available, onclick: () => confirmWithPassword(`Connect your ${p.name} account`, `After confirming you are sent to ${p.name} to choose the account. From then on it signs you in here.`, [], "Continue", false,
+              async (password) => { const r = await api.ssoLink(p.id, password); location.assign(r.url); }) }, "Connect"))),
+    );
+  }
+
   // two-factor authentication: an authenticator app (TOTP), hardware
   // security keys and passkeys. Any enrolled method completes a sign-in.
   const tfaCard = h("div.card");
@@ -165,7 +188,7 @@ function accountTab(body, ctx) {
       catch (e) { mErr.textContent = e.name && e.name.endsWith("Error") && !e.status ? webauthnError(e) : e.message; }
       go.disabled = false;
     }
-    setTimeout(() => (extra.length ? extra[0].querySelector("input") || pw : pw).focus(), 0);
+    (extra.length ? extra[0].querySelector("input") || pw : pw).focus();
     return m;
   }
 
@@ -269,8 +292,11 @@ function accountTab(body, ctx) {
   }
   drawTfa();
   loadKeys();
+  loadSso();
 
-  body.append(h("div.stack", nameCard, emailCard, pwCard, tfaCard));
+  // The single sign-on card fills in after its request: it comes last, so
+  // nothing moves under the pointer when it appears.
+  body.append(h("div.stack", nameCard, emailCard, pwCard, tfaCard, ssoCard));
 }
 
 // ---------- Team ----------

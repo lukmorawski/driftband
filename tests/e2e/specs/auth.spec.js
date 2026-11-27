@@ -1,7 +1,7 @@
 // Accounts through the UI: registration, sign-in, sign-out, errors,
 // two-factor authentication, lockout.
 const { test, expect } = require("@playwright/test");
-const { account, registerViaUi, loginViaUi, signOut, totp, field, loginViaApi } = require("../helpers");
+const { account, registerViaUi, registerViaApi, loginViaUi, signOut, totp, field, loginViaApi } = require("../helpers");
 
 test.describe("authentication @e2e", () => {
   test("create an organization, sign out, sign in again", async ({ page }) => {
@@ -15,6 +15,23 @@ test.describe("authentication @e2e", () => {
     // the session survives a reload
     await page.reload();
     await expect(page.locator(".nav-user")).toHaveText(acc.email);
+  });
+
+  test("the forms show nothing but their fields", async ({ page }) => {
+    // with the verification widget off, nothing takes its place
+    await page.goto("/");
+    await expect(page.locator(".auth-card button.primary")).toHaveText("Sign in");
+    await expect(page.locator(".auth-card")).not.toContainText(/null|undefined/);
+    await page.locator(".auth-tabs button", { hasText: "Create organization" }).click();
+    await expect(page.locator(".auth-card button.primary")).toHaveText("Create organization");
+    await expect(page.locator(".auth-card")).not.toContainText(/null|undefined/);
+    const owner = account("forms");
+    await registerViaApi(page, owner);
+    const invite = await (await page.request.post("/api/invites", { data: { role: "member" } })).json();
+    await page.request.post("/api/auth/logout");
+    await page.goto("/#/accept?token=" + encodeURIComponent(invite.token));
+    await expect(page.locator(".auth-card button.primary")).toHaveText("Join organization");
+    await expect(page.locator(".auth-card")).not.toContainText(/null|undefined/);
   });
 
   test("registration rejects weak input", async ({ page }) => {
@@ -144,8 +161,14 @@ test.describe("authentication @e2e", () => {
     await expect(page.locator("main")).toContainText("smoke");
     // how to set up each kind of notification channel
     const guide = page.locator(".card").filter({ has: page.locator("h2", { hasText: "Setting up notification channels" }) });
-    await expect(guide.locator(".howto h3")).toHaveText(["Telegram", "Slack", "Microsoft Teams", "Email with a username and password", "Email through Microsoft 365 with OAuth 2.0"]);
+    await expect(guide.locator(".howto h3")).toHaveText(["Telegram", "Slack", "Microsoft Teams", "Email with a username and password", "Email through Microsoft 365 with OAuth 2.0", "Zabbix"]);
     await expect(guide).toContainText("@BotFather");
     await expect(guide).toContainText("SMTP.SendAsApp");
+    await expect(guide).toContainText("history.push");
+    await expect(guide.locator("a", { hasText: "docs/zabbix" })).toHaveAttribute("href", "https://github.com/lukmorawski/driftband/tree/main/docs/zabbix");
+    // single sign-on, and where to read about new releases
+    const sso = page.locator(".card").filter({ has: page.locator("h2", { hasText: "Single sign-on" }) });
+    await expect(sso.locator(".howto h3")).toHaveText("Connect your account");
+    await expect(page.locator("footer a", { hasText: "What's new" })).toHaveAttribute("href", "https://driftband.app/whats-new/");
   });
 });

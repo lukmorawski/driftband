@@ -39,8 +39,10 @@ export const api = {
   logout:        ()        => req("POST", "/api/auth/logout"),
   inviteInfo:    (token)   => req("GET", "/api/auth/invite-info?token=" + encodeURIComponent(token)),
   // what the sign-in page needs before anyone is signed in:
-  // { registration_open, turnstile_site_key }
+  // { registration_open, turnstile_site_key, sso: [{ id, name }] }
   authConfig:    ()        => req("GET", "/api/auth/config"),
+  // single sign-on: the provider's answer, then (if asked) the second factor
+  ssoFinish:     (b)       => req("POST", "/api/auth/sso/finish", b),
   acceptInvite:  (b)       => req("POST", "/api/auth/accept-invite", b),
 
   changePassword:(b)       => req("POST", "/api/account/password", b),
@@ -53,6 +55,10 @@ export const api = {
   webauthnBegin: (b)       => req("POST", "/api/account/webauthn/register/begin", b),
   webauthnFinish:(b)       => req("POST", "/api/account/webauthn/register/finish", b),
   webauthnRemove:(id, password) => req("POST", `/api/account/webauthn/${id}/delete`, { password }),
+  ssoList:       ()        => req("GET", "/api/account/sso"),
+  ssoLink:       (provider, password) => req("POST", "/api/account/sso/link", { provider, password }),
+  ssoLinkFinish: (b)       => req("POST", "/api/account/sso/finish", b),
+  ssoUnlink:     (provider, password) => req("POST", `/api/account/sso/${provider}/unlink`, { password }),
   // type: the file's media type; data: the file, base64-encoded
   setAvatar:     (type, data) => req("POST", "/api/account/avatar", { type, data }),
   removeAvatar:  ()        => req("DELETE", "/api/account/avatar"),

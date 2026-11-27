@@ -1,0 +1,86 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+      name: Templates/Applications
+  templates:
+    - uuid: 0f9dbf9ecc604a72b58b0615c3d4c50a
+      template: 'Driftband by Zabbix trapper'
+      name: 'Driftband by Zabbix trapper'
+      description: |
+        Alerts of Driftband (https://driftband.app), a smoke-graph latency monitor, as problems in Zabbix.
+
+        Driftband pushes one value to the item driftband.alert whenever an alert rule starts alerting for a host or recovers, through the Zabbix API (history.push). A problem opens with the first and closes with the second.
+
+        Setup: link this template to a host, create an API token for a user with read access to that host, and add a Zabbix channel in Driftband under Settings, Notifications.
+
+        Documentation: https://github.com/lukmorawski/driftband/tree/main/docs/zabbix
+      vendor:
+        name: Driftband
+        version: 7.0-1
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: 88d0ec3116bf4d1baf3d52c6e4604234
+          name: 'Driftband: alert event'
+          type: TRAP
+          key: driftband.alert
+          delay: '0'
+          history: 90d
+          value_type: TEXT
+          trends: '0'
+          allowed_hosts: '{$DRIFTBAND.ALLOWED_HOSTS}'
+          description: 'One JSON object per change of an alert''s state: event (problem, resolved or test), alert (the rule and the host), metric, summary, host, address, rule, organization, value, threshold, unit and url.'
+          tags:
+            - tag: component
+              value: network
+          triggers:
+            - uuid: 6769278fd46d46739389bc38f91aa9b1
+              expression: 'find(/Driftband by Zabbix trapper/driftband.alert,,"like","\"event\":\"problem\"")=1 and find(/Driftband by Zabbix trapper/driftband.alert,,"like","\"metric\":\"latency\"")=1'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'find(/Driftband by Zabbix trapper/driftband.alert,,"like","\"event\":\"resolved\"")=1 and find(/Driftband by Zabbix trapper/driftband.alert,,"like","\"metric\":\"latency\"")=1'
+              correlation_mode: TAG_VALUE
+              correlation_tag: alert
+              name: 'Driftband: latency'
+              event_name: 'Driftband: {{ITEM.VALUE}.regsub("\"summary\":\"([^\"]*)\"", "\1")}'
+              opdata: '{{ITEM.VALUE}.regsub("\"rule\":\"([^\"]*)\"", "\1")}'
+              priority: WARNING
+              description: 'Opens when a Driftband alert rule on latency starts alerting for a host, closes when that host recovers. One problem per rule and host (tag alert). It can also be closed by hand: a recovery that could not be delivered does not close it.'
+              type: MULTIPLE
+              manual_close: 'YES'
+              tags:
+                - tag: alert
+                  value: '{{ITEM.VALUE}.regsub("\"alert\":\"([^\"]*)\"", "\1")}'
+                - tag: scope
+                  value: performance
+                - tag: source
+                  value: driftband
+            - uuid: 9efd9228915c48c2b2f77ba51b71fbf3
+              expression: 'find(/Driftband by Zabbix trapper/driftband.alert,,"like","\"event\":\"problem\"")=1 and find(/Driftband by Zabbix trapper/driftband.alert,,"like","\"metric\":\"loss\"")=1'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'find(/Driftband by Zabbix trapper/driftband.alert,,"like","\"event\":\"resolved\"")=1 and find(/Driftband by Zabbix trapper/driftband.alert,,"like","\"metric\":\"loss\"")=1'
+              correlation_mode: TAG_VALUE
+              correlation_tag: alert
+              name: 'Driftband: packet loss'
+              event_name: 'Driftband: {{ITEM.VALUE}.regsub("\"summary\":\"([^\"]*)\"", "\1")}'
+              opdata: '{{ITEM.VALUE}.regsub("\"rule\":\"([^\"]*)\"", "\1")}'
+              priority: HIGH
+              description: 'Opens when a Driftband alert rule on packet loss starts alerting for a host, closes when that host recovers. One problem per rule and host (tag alert). It can also be closed by hand: a recovery that could not be delivered does not close it.'
+              type: MULTIPLE
+              manual_close: 'YES'
+              tags:
+                - tag: alert
+                  value: '{{ITEM.VALUE}.regsub("\"alert\":\"([^\"]*)\"", "\1")}'
+                - tag: scope
+                  value: availability
+                - tag: source
+                  value: driftband
+      tags:
+        - tag: class
+          value: network
+        - tag: target
+          value: driftband
+      macros:
+        - macro: '{$DRIFTBAND.ALLOWED_HOSTS}'
+          value: '0.0.0.0/0,::/0'
+          description: 'Who may send values to the item. To restrict it, list the addresses of the Zabbix frontend and of Driftband, comma-separated: both are checked.'

@@ -367,5 +367,10 @@ async function settingsTab(body) {
       h("p.sub", "Set in the server's environment (TURNSTILE_ENABLE), shown here for information."),
       h("p", "Cloudflare Turnstile on the sign-in, organization and invitation forms: ",
         h("b", s.turnstile_enabled ? "on" : "off"), ".")),
+    h("div.card",
+      h("h2", "Single sign-on"),
+      h("p.sub", "Set in the server's environment (SSO_GOOGLE_..., SSO_ENTRA_...), shown here for information."),
+      h("p", "Providers on the sign-in page: ",
+        h("b", (s.sso || []).length ? s.sso.map((p) => p.name).join(", ") : "none"), ".")),
   );
 }

@@ -151,6 +151,29 @@ Specific checks:
   challenge origin for scripts and frames and nothing more; the secret key
   is never sent to the browser. The tests use a stand-in for Cloudflare's
   verification service.
+- **Single sign-on** (with a provider configured): a sign-in finds its
+  account by the provider's issuer and subject only; an identity that
+  merely carries an account's email address opens nothing, and a sign-in
+  never connects an identity or creates an account. Connecting and
+  disconnecting need the password, an identity belongs to one account, and
+  an administrator's password reset removes the connections. The flow is
+  bound to the browser that started it (state and cookie), cannot be
+  finished twice, by someone else or as the other kind of flow, and
+  expires. The ID token is refused when it is unsigned, signed with
+  another key, another algorithm or a key that is too short, issued by
+  someone else, to another application or tenant, outside the allowed
+  Workspace domain, expired, or without the nonce of this flow; the
+  authorization code is bound to its flow by PKCE and redeemed once.
+  An enrolled second factor is still required, with the same limits on
+  guessing. The discovery document must name the expected issuer and
+  https endpoints. The client secret, the code and the subject appear in
+  no answer and in no log. The tests use a stand-in provider.
+- **Zabbix channel**: the API token is stored sealed and never returned
+  or logged; the URL must be HTTPS and, unless the operator allows private
+  targets, public; answers of the API that mean "not taken" fail the
+  delivery; the fields the template reads cannot be forged through host
+  or rule names; Zabbix receives every change of an alert's state exactly
+  once and nothing else.
 - **Health endpoint**: answers without a session with nothing but the
   state of the application and its database, is never cached, and turns
   503 without leaking the database error.
@@ -194,3 +217,6 @@ Specific checks:
   `$proxy_add_x_forwarded_for`, HAProxy `option forwardfor`); behind a CDN
   such as Cloudflare, add the CDN's published ranges as well.
 - Serve over HTTPS through the proxy so the session cookie gets `Secure`.
+- `NOTIFY_PRIVATE_TARGETS` stays off on an instance shared with
+  organizations you would not let into your internal network: with it on,
+  every owner and admin can make the server call private addresses.

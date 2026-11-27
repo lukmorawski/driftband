@@ -5,13 +5,15 @@
 Driftband pings your hosts with fping and draws the whole distribution of
 round-trip times as percentile bands, with a median line coloured by packet
 loss. Everything is configured in the browser: a host tree with drag and drop,
-probe profiles, organizations and roles, two-factor sign-in, notifications
-(Telegram, Slack, Microsoft Teams, email) with flap detection, an audit log of
-every action, and a one-paste import of your SmokePing Targets.
+probe profiles, organizations and roles, single sign-on (Google, Microsoft
+Entra ID), two-factor sign-in, notifications (Telegram, Slack, Microsoft
+Teams, email, Zabbix) with flap detection, an audit log of every action, and
+a one-paste import of your SmokePing Targets.
 
 ![Driftband smoke graphs](https://driftband.app/assets/img/shot-portale-dark.webp)
 
 - Website: https://driftband.app
+- What's new in each release: https://driftband.app/whats-new/
 - Source and documentation: https://github.com/lukmorawski/driftband
 - Try it without installing: https://test.driftband.app (10 hosts per organization)
 - License: [AGPL-3.0-or-later](https://www.gnu.org/licenses/agpl-3.0.html)
@@ -45,7 +47,7 @@ services:
       retries: 10
 
   driftband:
-    image: lukmorawski/driftband:0.1.1
+    image: lukmorawski/driftband:0.2.0
     restart: unless-stopped
     depends_on:
       db:
@@ -58,6 +60,14 @@ services:
       TURNSTILE_ENABLE: ${TURNSTILE_ENABLE:-no}
       TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      SSO_GOOGLE_CLIENT_ID: ${SSO_GOOGLE_CLIENT_ID:-}
+      SSO_GOOGLE_CLIENT_SECRET: ${SSO_GOOGLE_CLIENT_SECRET:-}
+      SSO_GOOGLE_DOMAIN: ${SSO_GOOGLE_DOMAIN:-}
+      SSO_ENTRA_TENANT_ID: ${SSO_ENTRA_TENANT_ID:-}
+      SSO_ENTRA_CLIENT_ID: ${SSO_ENTRA_CLIENT_ID:-}
+      SSO_ENTRA_CLIENT_SECRET: ${SSO_ENTRA_CLIENT_SECRET:-}
+      SSO_ENTRA_AUTHORITY: ${SSO_ENTRA_AUTHORITY:-}
+      NOTIFY_PRIVATE_TARGETS: ${NOTIFY_PRIVATE_TARGETS:-no}
     ports:
       - "8080:8080"
     read_only: true
@@ -93,6 +103,9 @@ Releases follow [Semantic Versioning](https://semver.org). Platforms: `linux/amd
 | `APP_URL` | (none) | Public URL of the instance: linked from notifications, and the address security keys and passkeys are bound to |
 | `TRUSTED_PROXIES` | loopback and private ranges | Reverse proxies (CIDRs or addresses) whose `X-Forwarded-For` / `-Proto` headers are trusted; behind a CDN, add its ranges too |
 | `TURNSTILE_ENABLE`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | off | `yes` with both keys puts a Cloudflare Turnstile check on the sign-in, organization and invitation forms |
+| `SSO_GOOGLE_CLIENT_ID`, `SSO_GOOGLE_CLIENT_SECRET`, `SSO_GOOGLE_DOMAIN` | off | "Sign in with Google": the OAuth client of a Google Cloud project, optionally limited to one Workspace domain; needs `APP_URL` |
+| `SSO_ENTRA_TENANT_ID`, `SSO_ENTRA_CLIENT_ID`, `SSO_ENTRA_CLIENT_SECRET` | off | "Sign in with Microsoft" for one Microsoft Entra ID tenant; needs `APP_URL` |
+| `NOTIFY_PRIVATE_TARGETS` | `no` | `yes` lets notification channels reach private addresses, for example a Zabbix server on your network |
 | `TEST_INSTANCE` | `no` | `yes` turns on limits meant for a public demo instance |
 
 Every setting, the reverse proxy, backups and upgrades are described in the
@@ -114,9 +127,11 @@ leaves a sign-in form and nothing else for visitors.
   default for containers, set explicitly above).
 - Works with a read-only root filesystem and `no-new-privileges`.
 - Every image ships with an SBOM and build provenance attestations
-  (`docker buildx imagetools inspect lukmorawski/driftband:0.1.1 --format '{{ json .SBOM }}'`).
-- Argon2id passwords, two-factor authentication (security keys, passkeys,
-  TOTP), rate-limited sign-in, encrypted notification channels,
+  (`docker buildx imagetools inspect lukmorawski/driftband:0.2.0 --format '{{ json .SBOM }}'`).
+- Argon2id passwords, single sign-on with OpenID Connect (PKCE, verified
+  ID tokens, accounts connected explicitly and never matched by email),
+  two-factor authentication (security keys, passkeys, TOTP), rate-limited
+  sign-in, encrypted notification channels,
   SSRF-checked webhooks, an audit log of every action, and an automated
   security test suite covering every API endpoint.
 
@@ -126,7 +141,7 @@ leaves a sign-in form and nothing else for visitors.
 the application is serving and its database answers, and `503` otherwise.
 It needs no session; point your load balancer and monitoring at it. The
 image's built-in `HEALTHCHECK` uses the same endpoint. `docker run --rm
-lukmorawski/driftband:0.1.1 --version` prints the version.
+lukmorawski/driftband:0.2.0 --version` prints the version.
 
 ## Responsible use
 

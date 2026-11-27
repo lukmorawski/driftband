@@ -83,7 +83,8 @@ type env struct {
 	app  *App
 	srv  *httptest.Server
 	web  string
-	sink *sink // fake Telegram API / webhook receiver
+	sink *sink    // fake Telegram API / webhook receiver
+	idp  *mockIdP // fake single sign-on provider (sso_test.go)
 }
 
 // sink records every HTTP request sent to it (webhooks, Telegram API).
@@ -133,6 +134,8 @@ func newEnv(t *testing.T) *env {
 	app.allowPrivateTargets = true // deliveries go to the local sink
 	app.retryDelay = 5 * time.Millisecond
 	app.appURL = testOrigin // the address security keys and passkeys are bound to
+	idp := newMockIdP(t)
+	app.sso = idp.sso()
 	landing := t.TempDir()
 	_ = os.MkdirAll(landing+"/about", 0o755)
 	_ = os.MkdirAll(landing+"/assets/img", 0o755)
@@ -142,7 +145,7 @@ func newEnv(t *testing.T) *env {
 	_ = os.WriteFile(landing+"/404.html", []byte("<!doctype html><title>landing 404</title>"), 0o644)
 	srv := httptest.NewServer(app.routes(web, landing))
 	t.Cleanup(srv.Close)
-	return &env{t: t, app: app, srv: srv, web: web, sink: sk}
+	return &env{t: t, app: app, srv: srv, web: web, sink: sk, idp: idp}
 }
 
 // actor is a signed-in (or anonymous) user.
@@ -153,6 +156,9 @@ type actor struct {
 	Password string
 	Role     string
 	Token    string // session cookie value
+	// Extra cookies sent with every request of this actor (the cookie that
+	// binds a single sign-on flow to its browser).
+	Extra []*http.Cookie
 }
 
 var anon = &actor{}
@@ -185,6 +191,11 @@ func (e *env) req(a *actor, method, path string, body any, hdrs ...string) *resp
 	}
 	if a != nil && a.Token != "" {
 		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: a.Token})
+	}
+	if a != nil {
+		for _, c := range a.Extra {
+			r.AddCookie(c)
+		}
 	}
 	seen := map[string]bool{}
 	for _, h := range hdrs {

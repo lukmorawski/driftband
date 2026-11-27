@@ -74,7 +74,7 @@ components:
       type: object
       properties:
         name: { type: string, example: NOC }
-        kind: { type: string, enum: [telegram, slack, teams, email], example: slack }
+        kind: { type: string, enum: [telegram, slack, teams, email, zabbix], example: slack }
         enabled: { type: boolean, example: true }
         config:
           type: object
@@ -87,6 +87,8 @@ components:
             to: { type: array, items: { type: string }, example: [noc@example.com] }
             auth: { type: string, example: password }
             username: { type: string, example: alerts@example.com }
+            zabbix_url: { type: string, example: https://zabbix.example.com }
+            zabbix_host: { type: string, example: Driftband }
         secrets:
           type: object
           properties:
@@ -94,6 +96,7 @@ components:
             webhook_url: { type: string, example: https://hooks.slack.com/services/T000/B000/x }
             password: { type: string, example: secret }
             client_secret: { type: string, example: secret }
+            api_token: { type: string, example: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef }
     Rule:
       type: object
       properties:
@@ -143,6 +146,21 @@ paths:
       responses: { "200": { $ref: "#/components/responses/ok" } }
   /api/health:
     get:
+      responses: { "200": { $ref: "#/components/responses/ok" } }
+  # GET /api/auth/sso/{provider}/start is deliberately absent: it redirects
+  # to the provider, which is not ours to scan. The backend and browser
+  # tests cover it.
+  /api/auth/sso/finish:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state: { type: string, example: login.abc }
+                authorization_code: { type: string, example: abc }
+                code: { type: string, example: "123456" }
       responses: { "200": { $ref: "#/components/responses/ok" } }
   # POST /api/auth/logout is deliberately absent: importing the document
   # calls every operation once, and that call would end the scanner's own
@@ -234,6 +252,40 @@ paths:
   /api/account/webauthn/{id}/delete:
     post:
       parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { password: { type: string, example: Register-pass-123 } } }
+      responses: { "200": { $ref: "#/components/responses/ok" } }
+  /api/account/sso:
+    get:
+      responses: { "200": { $ref: "#/components/responses/ok" } }
+  /api/account/sso/link:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider: { type: string, enum: [google, entra], example: entra }
+                password: { type: string, example: Register-pass-123 }
+      responses: { "200": { $ref: "#/components/responses/ok" } }
+  /api/account/sso/finish:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state: { type: string, example: link.abc }
+                authorization_code: { type: string, example: abc }
+      responses: { "200": { $ref: "#/components/responses/ok" } }
+  /api/account/sso/{provider}/unlink:
+    post:
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string, enum: [google, entra], example: entra } }
       requestBody:
         content:
           application/json:

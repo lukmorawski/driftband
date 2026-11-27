@@ -53,6 +53,22 @@ CREATE TABLE IF NOT EXISTS webauthn_credentials (
 );
 CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user ON webauthn_credentials(user_id);
 
+-- Single sign-on (sso.go): the identity at a provider that an account is
+-- connected to. A sign-in finds its account by provider, issuer and subject;
+-- email is what the provider called the identity, kept for display only.
+CREATE TABLE IF NOT EXISTS user_identities (
+  id           BIGSERIAL PRIMARY KEY,
+  user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider     TEXT NOT NULL,   -- google | entra
+  issuer       TEXT NOT NULL,
+  subject      TEXT NOT NULL,
+  email        TEXT NOT NULL DEFAULT '',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ,
+  UNIQUE (provider, issuer, subject),
+  UNIQUE (user_id, provider)
+);
+
 -- Pending WebAuthn ceremonies (enrollment or sign-in): the challenge issued
 -- to one user, valid for a few minutes and usable once.
 CREATE TABLE IF NOT EXISTS webauthn_challenges (
@@ -218,7 +234,7 @@ CREATE TABLE IF NOT EXISTS notify_channels (
   id         BIGSERIAL PRIMARY KEY,
   org_id     BIGINT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
-  kind       TEXT NOT NULL,               -- telegram | slack | teams | email
+  kind       TEXT NOT NULL,               -- telegram | slack | teams | email | zabbix
   config     JSONB NOT NULL DEFAULT '{}',
   secret     BYTEA,
   enabled    BOOLEAN NOT NULL DEFAULT true,

@@ -18,11 +18,16 @@ web interface.
 |---|---|---|---|
 | `DB_PASSWORD` | yes | | Password of the PostgreSQL user, used by both containers. Generate one: `openssl rand -hex 24`. |
 | `SECRET_KEY` | recommended | generated and stored in the database | Master key (32 bytes, hex or base64) that encrypts notification channels and two-factor secrets. Generate one: `openssl rand -hex 32`. |
-| `APP_URL` | behind a proxy | none | Public address of the instance, for example `https://latency.example.org`. Used in notification links, and it is the address security keys and passkeys are bound to. |
+| `APP_URL` | behind a proxy, with single sign-on | none | Public address of the instance, for example `https://latency.example.org`. Used in notification links, it is the address security keys and passkeys are bound to, and single sign-on providers send people back to it. |
 | `TRUSTED_PROXIES` | behind a proxy | loopback and private ranges | Comma-separated addresses or CIDRs of the reverse proxies whose `X-Forwarded-For` and `X-Forwarded-Proto` headers are believed. |
 | `TURNSTILE_ENABLE` | no | `no` | `yes` puts a Cloudflare Turnstile check on the sign-in, organization and invitation forms. Needs the two keys below. |
 | `TURNSTILE_SITE_KEY` | with Turnstile | none | Site key of your Turnstile widget (public, sent to the browser). |
 | `TURNSTILE_SECRET_KEY` | with Turnstile | none | Secret key of the widget (stays on the server). |
+| `SSO_GOOGLE_CLIENT_ID`, `SSO_GOOGLE_CLIENT_SECRET` | no | none | Turn on "Sign in with Google": the OAuth client of your Google Cloud project. See [Single sign-on](#single-sign-on). |
+| `SSO_GOOGLE_DOMAIN` | no | any Google account | Accept only accounts of one Google Workspace domain, for example `example.org`. |
+| `SSO_ENTRA_TENANT_ID`, `SSO_ENTRA_CLIENT_ID`, `SSO_ENTRA_CLIENT_SECRET` | no | none | Turn on "Sign in with Microsoft" for one Microsoft Entra ID tenant: its directory (tenant) ID and the client ID and secret of an app registration. |
+| `SSO_ENTRA_AUTHORITY` | no | `https://login.microsoftonline.com` | Sign-in endpoint of a national cloud, for example `https://login.microsoftonline.us`. |
+| `NOTIFY_PRIVATE_TARGETS` | no | `no` | `yes` lets notification channels reach private addresses, for example a Zabbix server on your network. See [Notifications to internal systems](#notifications-to-internal-systems). |
 | `TEST_INSTANCE` | no | `no` | `yes` turns on limits meant for a public demo: 10 hosts per organization, probe interval of at least 60 s, packets of at most 56 bytes. |
 
 ### `SECRET_KEY`
@@ -94,6 +99,89 @@ What changes when it is on:
   the password was accepted.
 - With `TURNSTILE_ENABLE=yes` and a missing key the application does not
   start, rather than run without the protection you asked for.
+
+### Single sign-on
+
+People can sign in with their Google or Microsoft account instead of the
+password ("Sign in with Google", "Sign in with Microsoft" on the sign-in
+page). Both use OpenID Connect and are off until you configure them. Each
+provider is independent: set the variables of one, the other, or both.
+
+Single sign-on needs `APP_URL`. The provider sends people back to
+`APP_URL` followed by `/sso`, for example
+`https://latency.example.org/sso`. That exact address is the **redirect
+URI** you register with the provider.
+
+**Google**
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), open
+   APIs & Services, Credentials, and create an OAuth client ID of the type
+   "Web application".
+2. Add the redirect URI under "Authorized redirect URIs".
+3. Copy the client ID and the client secret into `.env` and restart:
+
+   ```
+   SSO_GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+   SSO_GOOGLE_CLIENT_SECRET=GOCSPX-...
+   ```
+
+Any Google account can then be connected. To accept only the accounts of
+your Google Workspace, add `SSO_GOOGLE_DOMAIN=example.org`.
+
+**Microsoft Entra ID**
+
+1. In the [Microsoft Entra admin center](https://entra.microsoft.com/),
+   open App registrations and create a registration. Supported account
+   types: "Accounts in this organizational directory only". Redirect URI:
+   platform "Web", the redirect URI above.
+2. From the registration's overview copy the Application (client) ID and
+   the Directory (tenant) ID. Under Certificates & secrets create a client
+   secret and copy its value.
+3. Put the three values in `.env` and restart:
+
+   ```
+   SSO_ENTRA_TENANT_ID=11111111-2222-3333-4444-555555555555
+   SSO_ENTRA_CLIENT_ID=66666666-7777-8888-9999-000000000000
+   SSO_ENTRA_CLIENT_SECRET=...
+   ```
+
+Sign-in is limited to that one tenant: the tenant ID must be the GUID of
+your directory, and accounts of other tenants or personal Microsoft
+accounts are refused. A client secret expires; renew it in Entra and
+update `.env` before it does.
+
+**How people use it**
+
+An account is connected to a provider by its owner: Settings, Account,
+Single sign-on, Connect. Driftband asks for the password, sends the person
+to the provider to choose the account, and from then on the button on the
+sign-in page signs them in. Disconnect removes the connection; the
+password keeps working throughout.
+
+**What it does and does not do**
+
+- Only a connected account can be signed in to. Nothing is matched by
+  email address and no account is created by a sign-in: email addresses
+  are not verified by Driftband, and not by every provider, so matching by
+  address would hand an account to whoever controls that address at the
+  provider. People still join through an invitation and set a password.
+- It replaces the password, not the second factor. An account with
+  two-factor sign-in is asked for its code, security key or passkey after
+  the provider has answered.
+- The flow is the authorization code flow with PKCE. The server verifies
+  the provider's ID token (signature, issuer, audience, expiry, nonce, and
+  the tenant or Workspace domain) before it looks up the account. The
+  client secret never leaves the server.
+- The server calls the provider directly, so it needs outbound HTTPS to
+  `accounts.google.com`, `oauth2.googleapis.com` and `www.googleapis.com`,
+  or to `login.microsoftonline.com`.
+- When a platform administrator resets a password, the account's
+  connections are removed with it.
+- Sign-ins, connections and refusals are written to the audit log.
+  Platform administrators see which providers are on in Admin, Settings.
+- A provider that is configured only in part (a client ID without its
+  secret, a tenant ID that is not a GUID, no `APP_URL`) stops the
+  application at start, with a message that says what is missing.
 
 ## Settings of the application container
 
@@ -271,14 +359,15 @@ platform administrator (below), and close the instance.
 3. Enable two-factor sign-in in Settings, Account.
 4. Add a notification channel and an alert rule in Settings,
    Notifications. The FAQ in the application walks through each channel
-   type.
+   type; for Zabbix see [Driftband alerts in Zabbix](zabbix/README.md).
 
 ## Platform administrator
 
 A platform administrator sees every organization, can block or delete
 organizations and users, reset two-factor sign-in, set host limits and
 change the instance settings (Admin, Settings: whether new organizations
-can be created). The flag can only be set in the database, never through
+can be created; the page also shows whether Turnstile and single sign-on
+are on). The flag can only be set in the database, never through
 the web interface or the API:
 
 ```bash
@@ -307,6 +396,35 @@ The response is never cached, reveals nothing else about the instance
 (no version, no counts) and is left out of the request log. The image's
 built-in `HEALTHCHECK` uses the same endpoint, so `docker ps` and
 `docker inspect` show the same state. Alert on anything but `200`.
+
+## Notifications to internal systems
+
+Channels that are given an address (Slack and Teams webhooks, a Zabbix
+URL, a custom OAuth token URL) must use HTTPS, and by default the address
+must be a public one. Every owner and admin of an organization can add
+channels, so on an instance shared by several organizations this keeps
+them from reaching services on your internal network.
+
+On an instance where you trust everyone who administers an organization,
+`NOTIFY_PRIVATE_TARGETS=yes` allows private addresses, for example a
+Zabbix server on your own network. HTTPS stays required.
+
+**Private certificate authority.** The container trusts the public
+certificate authorities. For a server whose certificate comes from your
+own authority, mount the authority's certificate (PEM) into a directory
+and add that directory to the trusted ones:
+
+```yaml
+services:
+  driftband:
+    volumes:
+      - ./ca:/etc/driftband/ca:ro
+    environment:
+      SSL_CERT_DIR: /etc/ssl/certs:/etc/driftband/ca
+```
+
+Zabbix has its own guide: [Driftband alerts in Zabbix](zabbix/README.md),
+with the template to import.
 
 ## Data and retention
 

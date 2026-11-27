@@ -31,6 +31,11 @@ cookie=$(scripts/test-stack.sh login "$ZAP_EMAIL" "$ZAP_PASSWORD")
 
 # The session cookie is injected into every request (replacer). Signing out
 # is excluded from the crawl, otherwise the spider would end its own session.
+# Starting a single sign-on redirects to the provider, and the scanner must
+# never follow that: the start route is excluded, and so is every address
+# outside the instance under test.
+host=${BASE_URL#*://}
+host=${host%%[:/]*}
 # ZAP sizes its Java heap at a quarter of the machine's memory and drives
 # several browsers for the client spider. On a small VM that sits next to
 # the stack under test, a fixed heap and one browser keep the scan within
@@ -44,7 +49,13 @@ zapopts="-Xmx512m -config ajaxSpider.numberOfBrowsers=1 \
   -config replacer.full_list(0).replacement=dband_session=$cookie \
   -config network.globalExclusions.exclusions.exclusion(0).name=logout \
   -config network.globalExclusions.exclusions.exclusion(0).value=.*/api/auth/logout.* \
-  -config network.globalExclusions.exclusions.exclusion(0).enabled=true"
+  -config network.globalExclusions.exclusions.exclusion(0).enabled=true \
+  -config network.globalExclusions.exclusions.exclusion(1).name=sso-start \
+  -config network.globalExclusions.exclusions.exclusion(1).value=.*/api/auth/sso/[^/]+/start.* \
+  -config network.globalExclusions.exclusions.exclusion(1).enabled=true \
+  -config network.globalExclusions.exclusions.exclusion(2).name=other-hosts \
+  -config network.globalExclusions.exclusions.exclusion(2).value=^https?://(?!$host[:/]).* \
+  -config network.globalExclusions.exclusions.exclusion(2).enabled=true"
 
 zap() {
   docker run --rm --network driftband-test --memory 2g --user "$(id -u):$(id -g)" \

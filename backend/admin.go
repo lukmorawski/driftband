@@ -279,6 +279,9 @@ func (a *App) handleAdminResetPassword(w http.ResponseWriter, r *http.Request) {
 	if in.Reset2FA {
 		_, _ = a.db.Exec(ctx, `DELETE FROM webauthn_credentials WHERE user_id = $1`, id)
 	}
+	// A reset takes back the account: whoever connected a single sign-on
+	// identity to it must not keep that way in.
+	_, _ = a.db.Exec(ctx, `DELETE FROM user_identities WHERE user_id = $1`, id)
 	_, _ = a.db.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id)
 	a.limiter.clear("login-email:"+email, "pw-user:"+strconv.FormatInt(id, 10))
 	detail := email

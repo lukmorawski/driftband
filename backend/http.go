@@ -29,12 +29,14 @@ type App struct {
 	sealer              *sealer
 	appURL              string        // public URL linked from notifications (APP_URL)
 	telegramAPI         string        // Telegram Bot API base URL
-	allowPrivateTargets bool          // tests only: allow webhooks on private addresses
+	allowPrivateTargets bool          // tests only: allow webhooks on private addresses, also over http
+	privateTargets      bool          // NOTIFY_PRIVATE_TARGETS: webhook-style channels may reach private addresses
 	retryDelay          time.Duration // base delay between delivery retries
 
 	testMode bool // TEST_INSTANCE: public test-instance limits (see limits.go)
 
 	captcha *turnstile // Cloudflare Turnstile on the public forms; nil = off
+	sso     *sso       // single sign-on providers (sso.go); nil = none configured
 }
 
 func newApp(db *pgxpool.Pool, pm *proberMgr) *App {
@@ -42,10 +44,12 @@ func newApp(db *pgxpool.Pool, pm *proberMgr) *App {
 	if err != nil {
 		log.Fatalf("secrets: %v", err)
 	}
+	appURL := strings.TrimRight(os.Getenv("APP_URL"), "/")
 	return &App{db: db, pm: pm, limiter: newRateLimiter(), trusted: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
-		sealer: s, appURL: strings.TrimRight(os.Getenv("APP_URL"), "/"), telegramAPI: "https://api.telegram.org",
+		sealer: s, appURL: appURL, telegramAPI: "https://api.telegram.org",
 		retryDelay: 5 * time.Second, testMode: parseBoolEnv(os.Getenv("TEST_INSTANCE")),
-		captcha: turnstileFromEnv()}
+		captcha: turnstileFromEnv(), sso: ssoFromEnv(appURL),
+		privateTargets: parseBoolEnv(os.Getenv("NOTIFY_PRIVATE_TARGETS"))}
 }
 
 // parseTrustedProxies reads a comma-separated list of CIDRs or addresses.
